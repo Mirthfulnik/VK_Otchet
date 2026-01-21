@@ -124,6 +124,21 @@
               Если пусто — будет попытка собрать «Артист - Трек (… ) - все кампании».
             </div>
           </div>
+          <div style="margin-top:10px">
+  <label>Статус итогового сообщения</label>
+  <select id="totalStatus">
+    <option value="">(оставить пустым)</option>
+    <option value="Модерация">Модерация</option>
+    <option value="Обучение">Обучение</option>
+    <option value="Идут показы">Идут показы</option>
+    <option value="Остановлена">Остановлена</option>
+    <option value="Финал">Финал</option>
+  </select>
+  <div class="small" style="margin-top:6px">
+    Применяется только к последнему суммарному блоку.
+  </div>
+</div>
+
         </div>
 
         <div class="hr"></div>
@@ -170,6 +185,7 @@
       tableWrap: document.getElementById('tableWrap'),
       title: document.getElementById('title'),
       totalLabel: document.getElementById('totalLabel'),
+      totalStatus: document.getElementById('totalStatus'),
       hint: document.getElementById('hint'),
     };
 
@@ -313,10 +329,11 @@
 
         const stTxt = statusText(statusRaw);
         if (String(statusRaw ?? '').trim()){
-          out += `Статус: ${stTxt} (=${String(statusRaw).trim()} в таблице)\n`;
+          out += `Статус: ${stTxt}\n`;
         } else {
           out += `Статус: \n`;
         }
+
         out += `Комментарий: ${comment}\n\n`;
       }
 
@@ -324,12 +341,14 @@
       if (totalsLabel){
         const totalCpa = (sumAdds > 0) ? (sumSpend / sumAdds) : 0;
         out += `➡ ${totalsLabel}\n\n`;
-        out += `Потрачено: ${fmtMoney(sumSpend)} ₽ (SUM Потрачено)\n`;
-        out += `Показы: ${fmtInt(sumImp)} (SUM Показы)\n`;
-        out += `Начали прослушивание: ${fmtInt(sumListen)} (SUM Начали прослушивание)\n`;
-        out += `Добавлено: ${fmtInt(sumAdds)} (SUM Добавлено)\n`;
-        out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'} (SUM Потрачено / SUM Добавления)\n\n`;
-        out += `Статус: \nКомментарий: ${totalComment}\n`;
+        out += `Потрачено: ${fmtMoney(sumSpend)} ₽\n`;
+        out += `Показы: ${fmtInt(sumImp)}\n`;
+        out += `Начали прослушивание: ${fmtInt(sumListen)}\n`;
+        out += `Добавлено: ${fmtInt(sumAdds)}\n`;
+        out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}\n\n`;
+        
+        const totalStatus = (els.totalStatus?.value || '').trim();
+        out += `Статус: ${totalStatus}\nКомментарий: ${totalComment}\n`;
       }
 
       els.output.value = out.trim() + '\n';
@@ -413,6 +432,7 @@ html += `<tr>
       rows = [];
       comments.clear();
       totalComment = '';
+      if (els.totalStatus) els.totalStatus.value = '';
       els.output.value = '';
       els.btnGenerate.disabled = true;
       els.btnCopy.disabled = true;
@@ -497,6 +517,7 @@ html += `<tr>
     // live rebuild when title changes
     els.title.addEventListener('input', ()=>{ if (rows.length) buildMessage(); });
     els.totalLabel.addEventListener('input', ()=>{ if (rows.length) buildMessage(); });
+    els.totalStatus.addEventListener('change', ()=>{ if (rows.length) buildMessage(); });
   </script>
 </body>
 </html>
