@@ -178,6 +178,8 @@
     /** Per groupId comment map */
     const comments = new Map();
 
+    let totalComment = '';
+
     const nfInt = new Intl.NumberFormat('ru-RU');
     const nfMoney = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -327,7 +329,7 @@
         out += `Начали прослушивание: ${fmtInt(sumListen)} (SUM Начали прослушивание)\n`;
         out += `Добавлено: ${fmtInt(sumAdds)} (SUM Добавлено)\n`;
         out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'} (SUM Потрачено / SUM Добавления)\n\n`;
-        out += `Статус: \nКомментарий: \n`;
+        out += `Статус: \nКомментарий: ${totalComment}\n`;
       }
 
       els.output.value = out.trim() + '\n';
@@ -349,6 +351,14 @@
           <th style="width:14%">Статус</th>
           <th style="width:42%">Комментарий</th>
         </tr></thead><tbody>`;
+      // Row for total comment
+html += `<tr>
+  <td><b>Итог (сумма по всем группам)</b></td>
+  <td></td>
+  <td>
+    <input id="totalCommentInput" type="text" placeholder="Комментарий к суммарному блоку" value="${escapeHtmlAttr(totalComment)}">
+  </td>
+</tr>`;
 
       for (const r of rows){
         const name = String(r[nameKey] ?? '').trim();
@@ -364,6 +374,13 @@
       }
       html += `</tbody></table>`;
       els.tableWrap.innerHTML = html;
+      const totalInp = document.getElementById('totalCommentInput');
+      if (totalInp){
+        totalInp.addEventListener('input', (e)=>{
+        totalComment = e.target.value;
+        buildMessage();
+      });
+    }
 
       // bind inputs
       els.tableWrap.querySelectorAll('input[data-name]').forEach(inp => {
@@ -395,6 +412,7 @@
       const f = e.target.files?.[0];
       rows = [];
       comments.clear();
+      totalComment = '';
       els.output.value = '';
       els.btnGenerate.disabled = true;
       els.btnCopy.disabled = true;
