@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>VK Ads Message Builder (Groups)</title>
+  <title>VK Ads Message Builder (Campaigns)</title>
   <style>
     :root{
       --bg:#0b0f17;
@@ -84,11 +84,12 @@
     th{color:var(--muted);font-size:12px;text-align:left}
     td input[type="text"]{padding:8px;border-radius:9px}
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+    .nowrap{white-space:nowrap}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>VK Ads → Сообщение по шаблону (уровень групп)</h1>
+    <h1>VK Ads → Сообщение по шаблону (агрегация с групп до кампаний)</h1>
 
     <div class="grid">
       <div class="card">
@@ -98,7 +99,7 @@
               <label>Загрузка отчёта (.xlsx)</label>
               <input id="file" type="file" accept=".xlsx,.xls" />
               <div class="small" style="margin-top:6px">
-                Ожидается лист <b>«Группы»</b>. Заголовки колонок могут содержать лишние пробелы — это учтено.
+                Вход: лист <b>«Группы»</b> (уровень групп). Сервис агрегирует строки по <b>ID кампании</b>.
               </div>
             </div>
           </div>
@@ -114,7 +115,7 @@
             <label>Заголовок сообщения (строка с ✅)</label>
             <input id="title" type="text" placeholder="Например: SAYAN - Гордая" />
             <div class="small" style="margin-top:6px">
-              Если оставить пустым — будет попытка собрать из названия группы (последние 2 части через « - »).
+              Если оставить пустым — будет попытка собрать из первой кампании (SAYAN - Гордая).
             </div>
           </div>
           <div style="flex:1;min-width:260px">
@@ -123,22 +124,23 @@
             <div class="small" style="margin-top:6px">
               Если пусто — будет попытка собрать «Артист - Трек (… ) - все кампании».
             </div>
-          </div>
-          <div style="margin-top:10px">
-  <label>Статус итогового сообщения</label>
-  <select id="totalStatus">
-    <option value="">(оставить пустым)</option>
-    <option value="Модерация">Модерация</option>
-    <option value="Обучение">Обучение</option>
-    <option value="Идут показы">Идут показы</option>
-    <option value="Остановлена">Остановлена</option>
-    <option value="Финал">Финал</option>
-  </select>
-  <div class="small" style="margin-top:6px">
-    Применяется только к последнему суммарному блоку.
-  </div>
-</div>
 
+            <div style="margin-top:10px">
+              <label>Статус итогового сообщения</label>
+              <select id="totalStatus">
+                <option value="">(оставить пустым)</option>
+                <option value="Модерация">Модерация</option>
+                <option value="Обучение">Обучение</option>
+                <option value="Идут показы">Идут показы</option>
+                <option value="Остановлена">Остановлена</option>
+                <option value="Финал">Финал</option>
+              </select>
+              <div class="small" style="margin-top:6px">
+                Применяется только к последнему суммарному блоку.
+              </div>
+            </div>
+
+          </div>
         </div>
 
         <div class="hr"></div>
@@ -158,11 +160,11 @@
       <div class="card">
         <div class="row" style="justify-content:space-between">
           <div>
-            <div style="font-weight:700">Группы и комментарии</div>
-            <div class="small">Комментарии подставляются в блок «Комментарий: …». Можно оставить пустым.</div>
+            <div style="font-weight:700">Кампании и комментарии</div>
+            <div class="small">Можно переименовать кампанию и оставить комментарий — это попадёт в сообщение.</div>
           </div>
           <div class="row">
-            <span class="pill">Статусы: <span class="bad">blocked</span> → «Остановлена», <span class="ok">active</span> → «Идут показы»</span>
+            <span class="pill">Статусы кампаний: <span class="ok">active</span> если есть активные группы, иначе <span class="bad">blocked</span></span>
           </div>
         </div>
 
@@ -189,10 +191,14 @@
       hint: document.getElementById('hint'),
     };
 
-    /** Parsed rows from excel */
-    let rows = [];
-    /** Per groupId comment map */
-    const comments = new Map();
+    /** Parsed rows from excel (groups level) */
+    let groupRows = [];
+    /** Aggregated campaigns */
+    let campaigns = []; // [{id, nameAuto, comment, statusRaw, spend, imp, listen, adds}]
+    /** Per campaignId comment map */
+    const campaignComments = new Map();
+    /** Per campaignId name override map */
+    const campaignNames = new Map();
 
     let totalComment = '';
 
@@ -231,17 +237,22 @@
       return nfMoney.format(asNumber(x)).replace(/\u00A0/g,' '); // replace NBSP with space
     }
 
+    function groupStatusToCampaign(statuses){
+      const norm = statuses.map(s => String(s ?? '').toLowerCase().trim()).filter(Boolean);
+      if (norm.includes('active')) return 'active';
+      if (norm.length && norm.every(s => s === 'blocked')) return 'blocked';
+      return norm[0] || '';
+    }
+
     function statusText(raw){
       const s = String(raw ?? '').toLowerCase().trim();
       if (s === 'active') return 'Идут показы';
       if (s === 'blocked') return 'Остановлена';
       if (!s) return '';
-      // fallback: show original
       return s;
     }
 
     function guessArtistTrackFullFromName(groupName){
-      // convention: "... - <Artist> - <Track (maybe with parentheses)>"
       const parts = String(groupName ?? '').split(' - ').map(p => p.trim()).filter(Boolean);
       if (parts.length >= 2){
         const artist = parts[parts.length - 2];
@@ -252,22 +263,114 @@
     }
 
     function removeTrailingParen(trackPart){
-      // "Гордая (скрытые)" -> "Гордая"
       return String(trackPart ?? '').replace(/\s*\([^)]*\)\s*$/,'').trim();
     }
 
+    function detectSegmentTypeFromGroupName(groupName){
+      const s = String(groupName ?? '').toLowerCase();
+      const out = new Set();
+      if (s.includes('слушател')) out.add('слушатели');
+      if (s.includes('баз')) out.add('базы');
+      return Array.from(out);
+    }
+
+    function buildCampaignAutoName(groupNames){
+      const first = groupNames.find(Boolean) || '';
+      const artistTrackFull = guessArtistTrackFullFromName(first);
+
+      const segSet = new Set();
+      for (const gn of groupNames){
+        for (const seg of detectSegmentTypeFromGroupName(gn)) segSet.add(seg);
+      }
+      const segs = Array.from(segSet);
+
+      const order = ['слушатели','базы'];
+      segs.sort((a,b)=>{
+        const ia = order.indexOf(a); const ib = order.indexOf(b);
+        if (ia === -1 && ib === -1) return a.localeCompare(b,'ru');
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+
+      if (segs.length) return `${artistTrackFull} - ${segs.join(' + ')}`;
+      return artistTrackFull;
+    }
+
+    function aggregateToCampaigns(){
+      const KEY_CAMPAIGN_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign','CampaignId','ID Campaign'];
+      const KEY_GROUP_NAME  = ['Название группы'];
+      const KEY_STATUS      = ['Статус'];
+      const KEY_SPEND       = ['Потрачено всего, ₽', 'Потрачено, ₽'];
+      const KEY_IMP         = ['Показы'];
+      const KEY_LISTEN      = ['Начали прослушивание'];
+      const KEY_ADDS        = ['Добавили аудио'];
+
+      const map = new Map();
+      for (const r of groupRows){
+        const cidRaw = getVal(r, KEY_CAMPAIGN_ID);
+        const cid = String(cidRaw ?? '').trim();
+        if (!cid) continue;
+
+        const gn = String(getVal(r, KEY_GROUP_NAME) ?? '').trim();
+        const st = String(getVal(r, KEY_STATUS) ?? '').trim();
+        const spend = asNumber(getVal(r, KEY_SPEND));
+        const imp = asInt(getVal(r, KEY_IMP));
+        const listen = asInt(getVal(r, KEY_LISTEN));
+        const adds = asInt(getVal(r, KEY_ADDS));
+
+        if (!map.has(cid)){
+          map.set(cid, { id: cid, groupNames: [], statuses: [], spend: 0, imp: 0, listen: 0, adds: 0 });
+        }
+        const a = map.get(cid);
+        a.groupNames.push(gn);
+        a.statuses.push(st);
+        a.spend += spend;
+        a.imp += imp;
+        a.listen += listen;
+        a.adds += adds;
+      }
+
+      const list = [];
+      for (const a of map.values()){
+        const nameAuto = buildCampaignAutoName(a.groupNames);
+        const nameOverride = campaignNames.get(a.id) || '';
+        const statusRaw = groupStatusToCampaign(a.statuses);
+        list.push({
+          id: a.id,
+          nameAuto,
+          statusRaw,
+          spend: a.spend,
+          imp: a.imp,
+          listen: a.listen,
+          adds: a.adds,
+          groupsCount: a.groupNames.length,
+        });
+      }
+
+      list.sort((x,y)=>{
+        const nx = (campaignNames.get(x.id) || x.nameAuto || '').trim();
+        const ny = (campaignNames.get(y.id) || y.nameAuto || '').trim();
+        return nx.localeCompare(ny, 'ru', { sensitivity:'base' });
+      });
+
+      campaigns = list;
+    }
+
     function guessTitleAndTotalsLabel(){
-      if (!rows.length) return;
-      const firstName = getVal(rows[0], ['Название группы','Название']);
-      const full = guessArtistTrackFullFromName(firstName);
-      // full = "SAYAN - Гордая (скрытые)"
+      if (!campaigns.length) return;
+
+      const first = campaigns[0];
+      const nameAuto = first.nameAuto || '';
+      const full = guessArtistTrackFullFromName(nameAuto);
       const parts = full.split(' - ').map(s=>s.trim());
       let title = full;
       if (parts.length >= 2){
         const artist = parts[0];
-        const track = removeTrailingParen(parts.slice(1).join(' - ')); // safe for extra dashes
+        const track = removeTrailingParen(parts.slice(1).join(' - '));
         title = `${artist} - ${track}`;
       }
+
       if (!els.title.value.trim()) els.title.value = title;
 
       if (!els.totalLabel.value.trim()){
@@ -276,40 +379,27 @@
     }
 
     function buildMessage(){
-      const KEY_NAME   = ['Название группы'];
-      const KEY_STATUS = ['Статус'];
-      const KEY_SPEND  = ['Потрачено всего, ₽', 'Потрачено, ₽'];
-      const KEY_IMP    = ['Показы'];
-      const KEY_LISTEN = ['Начали прослушивание'];
-      const KEY_ADDS   = ['Добавили аудио'];
-      const KEY_CPA    = ['Цена за добавление аудио, ₽', 'Цена за добавление аудио, ₽ '];
-
       const title = (els.title.value || '').trim();
       const totalsLabel = (els.totalLabel.value || '').trim();
 
       let out = '';
       if (title) out += `✅ ${title}\n\n`;
 
-      let sumSpend = 0;
-      let sumImp = 0;
-      let sumListen = 0;
-      let sumAdds = 0;
+      let sumSpend = 0, sumImp = 0, sumListen = 0, sumAdds = 0;
 
-      for (const r of rows){
-        const name = String(getVal(r, KEY_NAME) ?? '').trim();
-        const statusRaw = getVal(r, KEY_STATUS);
-        const spend = asNumber(getVal(r, KEY_SPEND));
-        const imp = asInt(getVal(r, KEY_IMP));
-        const listen = asInt(getVal(r, KEY_LISTEN));
-        const adds = asInt(getVal(r, KEY_ADDS));
-        const cpa = asNumber(getVal(r, KEY_CPA));
+      for (const c of campaigns){
+        const name = (campaignNames.get(c.id) || c.nameAuto || '').trim();
+        const comment = campaignComments.get(c.id) || '';
+
+        const spend = asNumber(c.spend);
+        const imp = asInt(c.imp);
+        const listen = asInt(c.listen);
+        const adds = asInt(c.adds);
 
         sumSpend += spend;
         sumImp += imp;
         sumListen += listen;
         sumAdds += adds;
-
-        const comment = comments.get(name) ?? '';
 
         out += `➡ ${name}\n\n`;
         out += `Потрачено: ${fmtMoney(spend)} ₽\n`;
@@ -317,27 +407,13 @@
         out += `Начали прослушивание: ${fmtInt(listen)}\n`;
         out += `Добавлено: ${fmtInt(adds)}\n`;
 
-        // If CPA empty in file, compute spend/adds (guard)
-        let cpaFinal = cpa;
-        if (!cpaFinal && adds > 0) cpaFinal = spend / adds;
+        const cpa = (adds > 0) ? (spend / adds) : 0;
+        out += `Ср. стоимость добавления: ${adds>0 ? (fmtMoney(cpa) + ' ₽') : '—'}\n\n`;
 
-        if (adds > 0){
-          out += `Ср. стоимость добавления: ${fmtMoney(cpaFinal)} ₽\n\n`;
-        } else {
-          out += `Ср. стоимость добавления: —\n\n`;
-        }
-
-        const stTxt = statusText(statusRaw);
-        if (String(statusRaw ?? '').trim()){
-          out += `Статус: ${stTxt}\n`;
-        } else {
-          out += `Статус: \n`;
-        }
-
+        out += `Статус: ${statusText(c.statusRaw)}\n`;
         out += `Комментарий: ${comment}\n\n`;
       }
 
-      // Totals
       if (totalsLabel){
         const totalCpa = (sumAdds > 0) ? (sumSpend / sumAdds) : 0;
         out += `➡ ${totalsLabel}\n\n`;
@@ -346,7 +422,7 @@
         out += `Начали прослушивание: ${fmtInt(sumListen)}\n`;
         out += `Добавлено: ${fmtInt(sumAdds)}\n`;
         out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}\n\n`;
-        
+
         const totalStatus = (els.totalStatus?.value || '').trim();
         out += `Статус: ${totalStatus}\nКомментарий: ${totalComment}\n`;
       }
@@ -356,56 +432,70 @@
     }
 
     function renderTable(){
-      if (!rows.length){
+      if (!campaigns.length){
         els.tableWrap.innerHTML = 'Пока нет данных.';
         return;
       }
 
-      const nameKey = 'Название группы';
-      const statusKey = 'Статус';
-
       let html = `<table>
         <thead><tr>
-          <th style="width:44%">Название группы</th>
+          <th style="width:44%">Кампания (можно переименовать)</th>
           <th style="width:14%">Статус</th>
           <th style="width:42%">Комментарий</th>
         </tr></thead><tbody>`;
-      // Row for total comment
-html += `<tr>
-  <td><b>Итог (сумма по всем группам)</b></td>
-  <td></td>
-  <td>
-    <input id="totalCommentInput" type="text" placeholder="Комментарий к суммарному блоку" value="${escapeHtmlAttr(totalComment)}">
-  </td>
-</tr>`;
 
-      for (const r of rows){
-        const name = String(r[nameKey] ?? '').trim();
-        const st = String(r[statusKey] ?? '').trim();
-        const cur = comments.get(name) ?? '';
+      html += `<tr>
+        <td><b>Итог (сумма по всем кампаниям)</b></td>
+        <td></td>
+        <td>
+          <input id="totalCommentInput" type="text" placeholder="Комментарий к суммарному блоку" value="${escapeHtmlAttr(totalComment)}">
+        </td>
+      </tr>`;
+
+      for (const c of campaigns){
+        const displayName = (campaignNames.get(c.id) || c.nameAuto || '').trim();
+        const stRaw = String(c.statusRaw || '').trim();
+        const curComment = campaignComments.get(c.id) || '';
+
         html += `<tr>
-          <td>${escapeHtml(name)}</td>
-          <td>${escapeHtml(st)}<div class="small">${escapeHtml(statusText(st))}</div></td>
           <td>
-            <input data-name="${escapeHtmlAttr(name)}" type="text" placeholder="Оставить пустым" value="${escapeHtmlAttr(cur)}">
+            <div class="small">ID: <span class="mono">${escapeHtml(c.id)}</span> · групп: ${escapeHtml(String(c.groupsCount))}</div>
+            <input data-cname="${escapeHtmlAttr(c.id)}" type="text" value="${escapeHtmlAttr(displayName)}" placeholder="Название кампании">
+            <div class="small">Авто: ${escapeHtml(c.nameAuto || '')}</div>
+          </td>
+          <td>
+            <span class="nowrap">${escapeHtml(statusText(stRaw))}</span>
+            <div class="small mono">${escapeHtml(stRaw)}</div>
+          </td>
+          <td>
+            <input data-ccomment="${escapeHtmlAttr(c.id)}" type="text" placeholder="Оставить пустым" value="${escapeHtmlAttr(curComment)}">
           </td>
         </tr>`;
       }
+
       html += `</tbody></table>`;
       els.tableWrap.innerHTML = html;
+
       const totalInp = document.getElementById('totalCommentInput');
       if (totalInp){
         totalInp.addEventListener('input', (e)=>{
-        totalComment = e.target.value;
-        buildMessage();
-      });
-    }
+          totalComment = e.target.value;
+          buildMessage();
+        });
+      }
 
-      // bind inputs
-      els.tableWrap.querySelectorAll('input[data-name]').forEach(inp => {
+      els.tableWrap.querySelectorAll('input[data-cname]').forEach(inp => {
         inp.addEventListener('input', (e)=>{
-          const n = e.target.getAttribute('data-name');
-          comments.set(n, e.target.value);
+          const id = e.target.getAttribute('data-cname');
+          campaignNames.set(id, e.target.value);
+          buildMessage();
+        });
+      });
+
+      els.tableWrap.querySelectorAll('input[data-ccomment]').forEach(inp => {
+        inp.addEventListener('input', (e)=>{
+          const id = e.target.getAttribute('data-ccomment');
+          campaignComments.set(id, e.target.value);
           buildMessage();
         });
       });
@@ -429,8 +519,10 @@ html += `<tr>
 
     els.file.addEventListener('change', async (e)=>{
       const f = e.target.files?.[0];
-      rows = [];
-      comments.clear();
+      groupRows = [];
+      campaigns = [];
+      campaignComments.clear();
+      campaignNames.clear();
       totalComment = '';
       if (els.totalStatus) els.totalStatus.value = '';
       els.output.value = '';
@@ -451,11 +543,9 @@ html += `<tr>
         const sheetName = wb.SheetNames.includes('Группы') ? 'Группы' : wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
 
-        // convert to json, but normalize header keys
         const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
-        // normalize keys by trimming and collapsing spaces
-        rows = raw.map(obj => {
+        groupRows = raw.map(obj => {
           const out = {};
           for (const [k,v] of Object.entries(obj)){
             out[normKey(k)] = v;
@@ -463,22 +553,23 @@ html += `<tr>
           return out;
         });
 
-        // validate must-have columns
-        const must = ['Название группы','Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
-        const cols = new Set(Object.keys(rows[0] || {}));
-        const missing = must.filter(m => !cols.has(m));
-
-        if (!rows.length){
+        if (!groupRows.length){
           setPill('Файл пустой', false);
           renderTable();
           return;
         }
 
+        const must = ['ID кампании','Название группы','Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
+        const cols = new Set(Object.keys(groupRows[0] || {}));
+        const missing = must.filter(m => !cols.has(m));
+
+        aggregateToCampaigns();
+
         if (missing.length){
           setPill('Загружено, но есть несовпадения колонок', false);
-          els.hint.textContent = `Не найдены колонки: ${missing.join(', ')}. Я всё равно попробую собрать сообщение.`;
+          els.hint.textContent = `Не найдены колонки: ${missing.join(', ')}. Я всё равно попробую агрегировать по ID кампании.`;
         } else {
-          setPill(`Загружено: ${rows.length} групп`, true);
+          setPill(`Загружено: ${groupRows.length} групп → ${campaigns.length} кампаний`, true);
         }
 
         guessTitleAndTotalsLabel();
@@ -494,7 +585,7 @@ html += `<tr>
     });
 
     els.btnGenerate.addEventListener('click', ()=>{
-      if (!rows.length) return;
+      if (!campaigns.length) return;
       buildMessage();
       els.hint.textContent = 'Готово. Можно скопировать.';
     });
@@ -506,7 +597,6 @@ html += `<tr>
         await navigator.clipboard.writeText(text);
         els.hint.textContent = 'Скопировано в буфер обмена.';
       }catch(e){
-        // fallback
         els.output.focus();
         els.output.select();
         document.execCommand('copy');
@@ -514,10 +604,9 @@ html += `<tr>
       }
     });
 
-    // live rebuild when title changes
-    els.title.addEventListener('input', ()=>{ if (rows.length) buildMessage(); });
-    els.totalLabel.addEventListener('input', ()=>{ if (rows.length) buildMessage(); });
-    els.totalStatus.addEventListener('change', ()=>{ if (rows.length) buildMessage(); });
+    els.title.addEventListener('input', ()=>{ if (campaigns.length) buildMessage(); });
+    els.totalLabel.addEventListener('input', ()=>{ if (campaigns.length) buildMessage(); });
+    els.totalStatus.addEventListener('change', ()=>{ if (campaigns.length) buildMessage(); });
   </script>
 </body>
 </html>
