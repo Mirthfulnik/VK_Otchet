@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>VK Ads Message Builder (Campaigns)</title>
+  <title>VK Ads Message Builder (Groups→Campaigns + Campaign Names)</title>
   <style>
     :root{
       --bg:#0b0f17;
@@ -23,12 +23,13 @@
       color:var(--text);
       font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Helvetica Neue", sans-serif;
     }
-    .wrap{max-width:1100px;margin:0 auto;padding:20px}
+    .wrap{max-width:1200px;margin:0 auto;padding:20px}
     h1{font-size:18px;margin:0 0 14px}
     .grid{
       display:grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.05fr 0.95fr;
       gap:14px;
+      align-items:start;
     }
     @media (max-width: 980px){
       .grid{grid-template-columns:1fr}
@@ -52,7 +53,7 @@
       padding:10px 10px;
       outline:none;
     }
-    textarea{min-height:340px;resize:vertical;white-space:pre-wrap}
+    textarea{min-height:640px;resize:vertical;white-space:pre-wrap}
     .small{font-size:12px;color:var(--muted)}
     .btn{
       background:var(--btn);
@@ -85,26 +86,37 @@
     td input[type="text"]{padding:8px;border-radius:9px}
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
     .nowrap{white-space:nowrap}
+    .stickyTop{
+      position:sticky; top:12px;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>VK Ads → Сообщение по шаблону (агрегация с групп до кампаний)</h1>
+    <h1>VK Ads → Сообщение по шаблону (агрегация групп → кампании + названия кампаний из отчёта)</h1>
 
     <div class="grid">
+      <!-- LEFT: inputs + status + campaigns/comments + buttons -->
       <div class="card">
         <div class="row" style="justify-content:space-between">
           <div class="row" style="flex:1">
             <div style="min-width:260px;flex:1">
-              <label>Загрузка отчёта (.xlsx)</label>
-              <input id="file" type="file" accept=".xlsx,.xls" />
+              <label>1) Отчёт по группам (.xlsx)</label>
+              <input id="fileGroups" type="file" accept=".xlsx,.xls" />
               <div class="small" style="margin-top:6px">
-                Вход: лист <b>«Группы»</b> (уровень групп). Сервис агрегирует строки по <b>ID кампании</b>.
+                Берём метрики и агрегируем по <b>ID кампании</b>.
+              </div>
+            </div>
+            <div style="min-width:260px;flex:1">
+              <label>2) Отчёт по кампаниям (.xlsx)</label>
+              <input id="fileCampaigns" type="file" accept=".xlsx,.xls" />
+              <div class="small" style="margin-top:6px">
+                Берём <b>только</b> названия кампаний и мэчим по <b>ID кампании</b>.
               </div>
             </div>
           </div>
           <div class="row">
-            <span id="statusPill" class="pill">Файл не загружен</span>
+            <span id="statusPill" class="pill">Файлы не загружены</span>
           </div>
         </div>
 
@@ -115,7 +127,7 @@
             <label>Заголовок сообщения (строка с ✅)</label>
             <input id="title" type="text" placeholder="Например: SAYAN - Гордая" />
             <div class="small" style="margin-top:6px">
-              Если оставить пустым — будет попытка собрать из первой кампании (SAYAN - Гордая).
+              Если пусто — будет попытка собрать автоматически.
             </div>
           </div>
           <div style="flex:1;min-width:260px">
@@ -139,9 +151,27 @@
                 Применяется только к последнему суммарному блоку.
               </div>
             </div>
-
           </div>
         </div>
+
+        <div class="hr"></div>
+
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <div style="font-weight:700">Кампании и комментарии</div>
+            <div class="small">
+              Название по умолчанию подтягивается из отчёта по кампаниям (если загружен).
+              Можно переименовать вручную — это имеет приоритет.
+            </div>
+          </div>
+          <div class="row">
+            <span class="pill">Статус кампании: <span class="ok">active</span> если есть активные группы, иначе <span class="bad">blocked</span></span>
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div id="tableWrap" class="small">Пока нет данных.</div>
 
         <div class="hr"></div>
 
@@ -150,27 +180,12 @@
           <button id="btnCopy" class="btn secondary" disabled>Скопировать</button>
           <span class="small" id="hint"></span>
         </div>
-
-        <div class="hr"></div>
-
-        <label>Сообщение</label>
-        <textarea id="output" class="mono" placeholder="Здесь появится сообщение…"></textarea>
       </div>
 
-      <div class="card">
-        <div class="row" style="justify-content:space-between">
-          <div>
-            <div style="font-weight:700">Кампании и комментарии</div>
-            <div class="small">Можно переименовать кампанию и оставить комментарий — это попадёт в сообщение.</div>
-          </div>
-          <div class="row">
-            <span class="pill">Статусы кампаний: <span class="ok">active</span> если есть активные группы, иначе <span class="bad">blocked</span></span>
-          </div>
-        </div>
-
-        <div class="hr"></div>
-
-        <div id="tableWrap" class="small">Пока нет данных.</div>
+      <!-- RIGHT: message output -->
+      <div class="card stickyTop">
+        <label>Сообщение</label>
+        <textarea id="output" class="mono" placeholder="Здесь появится сообщение…"></textarea>
       </div>
     </div>
   </div>
@@ -179,7 +194,8 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script>
     const els = {
-      file: document.getElementById('file'),
+      fileGroups: document.getElementById('fileGroups'),
+      fileCampaigns: document.getElementById('fileCampaigns'),
       statusPill: document.getElementById('statusPill'),
       btnGenerate: document.getElementById('btnGenerate'),
       btnCopy: document.getElementById('btnCopy'),
@@ -191,23 +207,30 @@
       hint: document.getElementById('hint'),
     };
 
-    /** Parsed rows from excel (groups level) */
-    let groupRows = [];
-    /** Aggregated campaigns */
-    let campaigns = []; // [{id, nameAuto, comment, statusRaw, spend, imp, listen, adds}]
-    /** Per campaignId comment map */
-    const campaignComments = new Map();
-    /** Per campaignId name override map */
-    const campaignNames = new Map();
-
+    // --- State ---
+    let groupRows = [];                 // rows from groups report
+    let campaignsAgg = [];              // aggregated campaigns
+    const campaignNamesFromReport = new Map(); // id -> name (from campaigns report)
+    const campaignNamesManual = new Map();     // id -> name (manual override)
+    const campaignComments = new Map();        // id -> comment
     let totalComment = '';
+
+    let groupsLoaded = false;
+    let campaignsReportLoaded = false;
 
     const nfInt = new Intl.NumberFormat('ru-RU');
     const nfMoney = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    function normKey(k){
-      return String(k ?? '').replace(/\s+/g,' ').trim(); // trim + collapse spaces
+    function normKey(k){ return String(k ?? '').replace(/\s+/g,' ').trim(); }
+    function escapeHtml(s){
+      return String(s ?? '')
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'","&#039;");
     }
+    function escapeHtmlAttr(s){ return escapeHtml(s).replaceAll('\n',' '); }
 
     function getVal(row, keyCandidates){
       for (const k of keyCandidates){
@@ -224,25 +247,9 @@
       const n = Number(s);
       return isFinite(n) ? n : 0;
     }
-
-    function asInt(x){
-      return Math.round(asNumber(x));
-    }
-
-    function fmtInt(x){
-      return nfInt.format(asInt(x));
-    }
-
-    function fmtMoney(x){
-      return nfMoney.format(asNumber(x)).replace(/\u00A0/g,' '); // replace NBSP with space
-    }
-
-    function groupStatusToCampaign(statuses){
-      const norm = statuses.map(s => String(s ?? '').toLowerCase().trim()).filter(Boolean);
-      if (norm.includes('active')) return 'active';
-      if (norm.length && norm.every(s => s === 'blocked')) return 'blocked';
-      return norm[0] || '';
-    }
+    function asInt(x){ return Math.round(asNumber(x)); }
+    function fmtInt(x){ return nfInt.format(asInt(x)); }
+    function fmtMoney(x){ return nfMoney.format(asNumber(x)).replace(/\u00A0/g,' '); }
 
     function statusText(raw){
       const s = String(raw ?? '').toLowerCase().trim();
@@ -250,6 +257,13 @@
       if (s === 'blocked') return 'Остановлена';
       if (!s) return '';
       return s;
+    }
+
+    function groupStatusToCampaign(statuses){
+      const norm = statuses.map(s => String(s ?? '').toLowerCase().trim()).filter(Boolean);
+      if (norm.includes('active')) return 'active';
+      if (norm.length && norm.every(s => s === 'blocked')) return 'blocked';
+      return norm[0] || '';
     }
 
     function guessArtistTrackFullFromName(groupName){
@@ -261,11 +275,9 @@
       }
       return String(groupName ?? '').trim();
     }
-
     function removeTrailingParen(trackPart){
       return String(trackPart ?? '').replace(/\s*\([^)]*\)\s*$/,'').trim();
     }
-
     function detectSegmentTypeFromGroupName(groupName){
       const s = String(groupName ?? '').toLowerCase();
       const out = new Set();
@@ -273,7 +285,6 @@
       if (s.includes('баз')) out.add('базы');
       return Array.from(out);
     }
-
     function buildCampaignAutoName(groupNames){
       const first = groupNames.find(Boolean) || '';
       const artistTrackFull = guessArtistTrackFullFromName(first);
@@ -283,7 +294,6 @@
         for (const seg of detectSegmentTypeFromGroupName(gn)) segSet.add(seg);
       }
       const segs = Array.from(segSet);
-
       const order = ['слушатели','базы'];
       segs.sort((a,b)=>{
         const ia = order.indexOf(a); const ib = order.indexOf(b);
@@ -297,11 +307,33 @@
       return artistTrackFull;
     }
 
+    function resolveCampaignName(id, autoName){
+      const manual = (campaignNamesManual.get(id) || '').trim();
+      if (manual) return manual;
+      const fromReport = (campaignNamesFromReport.get(id) || '').trim();
+      if (fromReport) return fromReport;
+      return (autoName || '').trim();
+    }
+
+    function setPill(){
+      const parts = [];
+      if (groupsLoaded) parts.push('Группы: загружено');
+      else parts.push('Группы: нет');
+
+      if (campaignsReportLoaded) parts.push('Кампании: имена загружены');
+      else parts.push('Кампании: имена не загружены');
+
+      const ok = groupsLoaded; // message can be built only if groups are loaded
+      els.statusPill.textContent = parts.join(' · ');
+      els.statusPill.classList.toggle('ok', ok);
+      els.statusPill.classList.toggle('bad', !ok);
+    }
+
     function aggregateToCampaigns(){
       const KEY_CAMPAIGN_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign','CampaignId','ID Campaign'];
       const KEY_GROUP_NAME  = ['Название группы'];
       const KEY_STATUS      = ['Статус'];
-      const KEY_SPEND       = ['Потрачено всего, ₽', 'Потрачено, ₽'];
+      const KEY_SPEND       = ['Потрачено всего, ₽', 'Потрачено всего, ₽ ', 'Потрачено, ₽'];
       const KEY_IMP         = ['Показы'];
       const KEY_LISTEN      = ['Начали прослушивание'];
       const KEY_ADDS        = ['Добавили аудио'];
@@ -333,13 +365,11 @@
 
       const list = [];
       for (const a of map.values()){
-        const nameAuto = buildCampaignAutoName(a.groupNames);
-        const nameOverride = campaignNames.get(a.id) || '';
-        const statusRaw = groupStatusToCampaign(a.statuses);
+        const autoName = buildCampaignAutoName(a.groupNames);
         list.push({
           id: a.id,
-          nameAuto,
-          statusRaw,
+          autoName,
+          statusRaw: groupStatusToCampaign(a.statuses),
           spend: a.spend,
           imp: a.imp,
           listen: a.listen,
@@ -349,20 +379,20 @@
       }
 
       list.sort((x,y)=>{
-        const nx = (campaignNames.get(x.id) || x.nameAuto || '').trim();
-        const ny = (campaignNames.get(y.id) || y.nameAuto || '').trim();
+        const nx = resolveCampaignName(x.id, x.autoName);
+        const ny = resolveCampaignName(y.id, y.autoName);
         return nx.localeCompare(ny, 'ru', { sensitivity:'base' });
       });
 
-      campaigns = list;
+      campaignsAgg = list;
     }
 
     function guessTitleAndTotalsLabel(){
-      if (!campaigns.length) return;
+      if (!campaignsAgg.length) return;
 
-      const first = campaigns[0];
-      const nameAuto = first.nameAuto || '';
-      const full = guessArtistTrackFullFromName(nameAuto);
+      const first = campaignsAgg[0];
+      const nameForTitle = resolveCampaignName(first.id, first.autoName);
+      const full = guessArtistTrackFullFromName(nameForTitle);
       const parts = full.split(' - ').map(s=>s.trim());
       let title = full;
       if (parts.length >= 2){
@@ -370,25 +400,23 @@
         const track = removeTrailingParen(parts.slice(1).join(' - '));
         title = `${artist} - ${track}`;
       }
-
       if (!els.title.value.trim()) els.title.value = title;
 
       if (!els.totalLabel.value.trim()){
-        els.totalLabel.value = `${full} - все кампании`;
+        els.totalLabel.value = `${guessArtistTrackFullFromName(nameForTitle)} - все кампании`;
       }
     }
 
     function buildMessage(){
       const title = (els.title.value || '').trim();
       const totalsLabel = (els.totalLabel.value || '').trim();
-
       let out = '';
       if (title) out += `✅ ${title}\n\n`;
 
       let sumSpend = 0, sumImp = 0, sumListen = 0, sumAdds = 0;
 
-      for (const c of campaigns){
-        const name = (campaignNames.get(c.id) || c.nameAuto || '').trim();
+      for (const c of campaignsAgg){
+        const name = resolveCampaignName(c.id, c.autoName);
         const comment = campaignComments.get(c.id) || '';
 
         const spend = asNumber(c.spend);
@@ -396,10 +424,7 @@
         const listen = asInt(c.listen);
         const adds = asInt(c.adds);
 
-        sumSpend += spend;
-        sumImp += imp;
-        sumListen += listen;
-        sumAdds += adds;
+        sumSpend += spend; sumImp += imp; sumListen += listen; sumAdds += adds;
 
         out += `➡ ${name}\n\n`;
         out += `Потрачено: ${fmtMoney(spend)} ₽\n`;
@@ -432,8 +457,8 @@
     }
 
     function renderTable(){
-      if (!campaigns.length){
-        els.tableWrap.innerHTML = 'Пока нет данных.';
+      if (!campaignsAgg.length){
+        els.tableWrap.innerHTML = 'Сначала загрузите отчёт по группам.';
         return;
       }
 
@@ -452,16 +477,21 @@
         </td>
       </tr>`;
 
-      for (const c of campaigns){
-        const displayName = (campaignNames.get(c.id) || c.nameAuto || '').trim();
+      for (const c of campaignsAgg){
         const stRaw = String(c.statusRaw || '').trim();
         const curComment = campaignComments.get(c.id) || '';
+        const nameAuto = (c.autoName || '').trim();
+        const nameReport = (campaignNamesFromReport.get(c.id) || '').trim();
+        const nameManual = (campaignNamesManual.get(c.id) || '').trim();
+        const displayName = resolveCampaignName(c.id, c.autoName);
+
+        const src = nameManual ? 'ручн.' : (nameReport ? 'из отчёта кампаний' : 'авто');
 
         html += `<tr>
           <td>
-            <div class="small">ID: <span class="mono">${escapeHtml(c.id)}</span> · групп: ${escapeHtml(String(c.groupsCount))}</div>
+            <div class="small">ID: <span class="mono">${escapeHtml(c.id)}</span> · групп: ${escapeHtml(String(c.groupsCount))} · источник: ${escapeHtml(src)}</div>
             <input data-cname="${escapeHtmlAttr(c.id)}" type="text" value="${escapeHtmlAttr(displayName)}" placeholder="Название кампании">
-            <div class="small">Авто: ${escapeHtml(c.nameAuto || '')}</div>
+            <div class="small">Авто: ${escapeHtml(nameAuto)}${nameReport ? `<br>Из отчёта кампаний: ${escapeHtml(nameReport)}` : ''}</div>
           </td>
           <td>
             <span class="nowrap">${escapeHtml(statusText(stRaw))}</span>
@@ -487,7 +517,10 @@
       els.tableWrap.querySelectorAll('input[data-cname]').forEach(inp => {
         inp.addEventListener('input', (e)=>{
           const id = e.target.getAttribute('data-cname');
-          campaignNames.set(id, e.target.value);
+          campaignNamesManual.set(id, e.target.value);
+          // re-sort for neatness
+          aggregateToCampaigns();
+          renderTable();
           buildMessage();
         });
       });
@@ -501,91 +534,162 @@
       });
     }
 
-    function escapeHtml(s){
-      return String(s ?? '')
-        .replaceAll('&','&amp;')
-        .replaceAll('<','&lt;')
-        .replaceAll('>','&gt;')
-        .replaceAll('"','&quot;')
-        .replaceAll("'","&#039;");
-    }
-    function escapeHtmlAttr(s){ return escapeHtml(s).replaceAll('\n',' '); }
-
-    function setPill(text, ok=false){
-      els.statusPill.textContent = text;
-      els.statusPill.classList.toggle('ok', ok);
-      els.statusPill.classList.toggle('bad', !ok);
+    async function parseXlsx(file){
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array' });
+      return wb;
     }
 
-    els.file.addEventListener('change', async (e)=>{
-      const f = e.target.files?.[0];
+    function sheetToRowsNormalized(wb, preferredSheetName){
+      const sheetName = (preferredSheetName && wb.SheetNames.includes(preferredSheetName))
+        ? preferredSheetName
+        : wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      return raw.map(obj => {
+        const out = {};
+        for (const [k,v] of Object.entries(obj)){
+          out[normKey(k)] = v;
+        }
+        return out;
+      });
+    }
+
+    async function handleGroupsFile(file){
+      const wb = await parseXlsx(file);
+      // usually "Группы"
+      groupRows = sheetToRowsNormalized(wb, 'Группы');
+      groupsLoaded = groupRows.length > 0;
+
+      if (!groupsLoaded){
+        campaignsAgg = [];
+        return { missing: ['(пустой файл)'] };
+      }
+
+      const must = ['ID кампании','Название группы','Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
+      const cols = new Set(Object.keys(groupRows[0] || {}));
+      const missing = must.filter(m => !cols.has(m));
+
+      aggregateToCampaigns();
+      guessTitleAndTotalsLabel();
+      return { missing };
+    }
+
+    async function handleCampaignsFile(file){
+      const wb = await parseXlsx(file);
+      // expected sheet "Кампании"
+      const rows = sheetToRowsNormalized(wb, 'Кампании');
+
+      campaignNamesFromReport.clear();
+      const KEY_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign'];
+      const KEY_NAME = ['Название кампании','Campaign name','campaign_name','Name'];
+
+      for (const r of rows){
+        const id = String(getVal(r, KEY_ID) ?? '').trim();
+        const name = String(getVal(r, KEY_NAME) ?? '').trim();
+        if (id && name){
+          campaignNamesFromReport.set(id, name);
+        }
+      }
+
+      campaignsReportLoaded = campaignNamesFromReport.size > 0;
+
+      // If groups already loaded, re-aggregate to apply names, then refresh UI/message
+      if (groupsLoaded){
+        aggregateToCampaigns();
+        renderTable();
+        buildMessage();
+      }
+
+      return {
+        count: campaignNamesFromReport.size,
+        sampleSheet: wb.SheetNames[0] || ''
+      };
+    }
+
+    function resetForNewGroups(){
+      // Do NOT wipe campaignNamesFromReport (it can be reused)
+      campaignsAgg = [];
       groupRows = [];
-      campaigns = [];
       campaignComments.clear();
-      campaignNames.clear();
+      campaignNamesManual.clear();
       totalComment = '';
       if (els.totalStatus) els.totalStatus.value = '';
       els.output.value = '';
       els.btnGenerate.disabled = true;
       els.btnCopy.disabled = true;
       els.hint.textContent = '';
+    }
+
+    els.fileGroups.addEventListener('change', async (e)=>{
+      const f = e.target.files?.[0];
+      resetForNewGroups();
 
       if (!f){
-        setPill('Файл не загружен', false);
+        groupsLoaded = false;
+        setPill();
         renderTable();
         return;
       }
 
       try{
-        const buf = await f.arrayBuffer();
-        const wb = XLSX.read(buf, { type:'array' });
+        const res = await handleGroupsFile(f);
+        setPill();
 
-        const sheetName = wb.SheetNames.includes('Группы') ? 'Группы' : wb.SheetNames[0];
-        const ws = wb.Sheets[sheetName];
-
-        const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
-
-        groupRows = raw.map(obj => {
-          const out = {};
-          for (const [k,v] of Object.entries(obj)){
-            out[normKey(k)] = v;
-          }
-          return out;
-        });
-
-        if (!groupRows.length){
-          setPill('Файл пустой', false);
+        if (!groupsLoaded){
+          els.hint.textContent = 'Файл групп пустой или не распознан.';
           renderTable();
           return;
         }
 
-        const must = ['ID кампании','Название группы','Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
-        const cols = new Set(Object.keys(groupRows[0] || {}));
-        const missing = must.filter(m => !cols.has(m));
-
-        aggregateToCampaigns();
-
-        if (missing.length){
-          setPill('Загружено, но есть несовпадения колонок', false);
-          els.hint.textContent = `Не найдены колонки: ${missing.join(', ')}. Я всё равно попробую агрегировать по ID кампании.`;
+        if (res.missing.length){
+          els.hint.textContent = `Не найдены колонки: ${res.missing.join(', ')}. Я всё равно попробую агрегировать по ID кампании.`;
         } else {
-          setPill(`Загружено: ${groupRows.length} групп → ${campaigns.length} кампаний`, true);
+          els.hint.textContent = '';
         }
 
-        guessTitleAndTotalsLabel();
         renderTable();
         els.btnGenerate.disabled = false;
 
       }catch(err){
         console.error(err);
-        setPill('Ошибка чтения файла', false);
+        groupsLoaded = false;
+        setPill();
         els.hint.textContent = String(err?.message || err);
         renderTable();
       }
     });
 
+    els.fileCampaigns.addEventListener('change', async (e)=>{
+      const f = e.target.files?.[0];
+      if (!f){
+        campaignNamesFromReport.clear();
+        campaignsReportLoaded = false;
+        setPill();
+        if (groupsLoaded){
+          aggregateToCampaigns();
+          renderTable();
+          buildMessage();
+        }
+        return;
+      }
+
+      try{
+        const res = await handleCampaignsFile(f);
+        setPill();
+        els.hint.textContent = groupsLoaded
+          ? `Загружены имена кампаний: ${res.count}.`
+          : `Загружены имена кампаний: ${res.count}. Теперь загрузите отчёт по группам.`;
+      }catch(err){
+        console.error(err);
+        campaignsReportLoaded = false;
+        setPill();
+        els.hint.textContent = String(err?.message || err);
+      }
+    });
+
     els.btnGenerate.addEventListener('click', ()=>{
-      if (!campaigns.length) return;
+      if (!groupsLoaded || !campaignsAgg.length) return;
       buildMessage();
       els.hint.textContent = 'Готово. Можно скопировать.';
     });
@@ -604,9 +708,12 @@
       }
     });
 
-    els.title.addEventListener('input', ()=>{ if (campaigns.length) buildMessage(); });
-    els.totalLabel.addEventListener('input', ()=>{ if (campaigns.length) buildMessage(); });
-    els.totalStatus.addEventListener('change', ()=>{ if (campaigns.length) buildMessage(); });
+    els.title.addEventListener('input', ()=>{ if (groupsLoaded) buildMessage(); });
+    els.totalLabel.addEventListener('input', ()=>{ if (groupsLoaded) buildMessage(); });
+    els.totalStatus.addEventListener('change', ()=>{ if (groupsLoaded) buildMessage(); });
+
+    // init pill
+    setPill();
   </script>
 </body>
 </html>
