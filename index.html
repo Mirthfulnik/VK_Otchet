@@ -103,14 +103,12 @@
               <label>1) Отчёт по группам (.xlsx)</label>
               <input id="fileGroups" type="file" accept=".xlsx,.xls" />
               <div class="small" style="margin-top:6px">
-                Берём метрики и агрегируем по <b>ID кампании</b>.
               </div>
             </div>
             <div style="min-width:260px;flex:1">
               <label>2) Отчёт по кампаниям (.xlsx)</label>
               <input id="fileCampaigns" type="file" accept=".xlsx,.xls" />
               <div class="small" style="margin-top:6px">
-                Берём <b>только</b> названия кампаний и мэчим по <b>ID кампании</b>.
               </div>
             </div>
           </div>
@@ -126,14 +124,12 @@
             <label>Заголовок сообщения (строка с ✅)</label>
             <input id="title" type="text" placeholder="Например: SAYAN - Гордая" />
             <div class="small" style="margin-top:6px">
-              Если пусто — будет попытка собрать автоматически <b>только если</b> есть имя кампании из отчёта по кампаниям или ручного ввода.
             </div>
           </div>
           <div style="flex:1;min-width:260px">
             <label>Строка итогов (➡ ... - все кампании)</label>
             <input id="totalLabel" type="text" placeholder="Например: SAYAN - Гордая (скрытые) - все кампании" />
             <div class="small" style="margin-top:6px">
-              Если пусто — будет попытка собрать «Артист - Трек (… ) - все кампании» (только если есть имя кампании).
             </div>
 
             <div style="margin-top:10px">
@@ -147,7 +143,7 @@
                 <option value="Финал">Финал</option>
               </select>
               <div class="small" style="margin-top:6px">
-                Применяется только к последнему суммарному блоку.
+                Для последнего суммарного сообщения.
               </div>
             </div>
           </div>
@@ -159,8 +155,6 @@
           <div>
             <div style="font-weight:700">Кампании и комментарии</div>
             <div class="small">
-              Имя кампании по умолчанию: <b>из отчёта по кампаниям</b>. Если имени нет — поле будет пустым (введи вручную).
-              Из групп название <b>не собираем</b>.
             </div>
           </div>
           <div class="row">
