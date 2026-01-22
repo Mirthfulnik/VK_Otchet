@@ -89,6 +89,15 @@
     .stickyTop{
       position:sticky; top:12px;
     }
+    .checkCell{
+      width:44px;
+      text-align:center;
+    }
+    input[type="checkbox"]{
+      width:18px;
+      height:18px;
+      accent-color: var(--btn);
+    }
   </style>
 </head>
 <body>
@@ -160,8 +169,7 @@
           <div>
             <div style="font-weight:700">Кампании и комментарии</div>
             <div class="small">
-              Название по умолчанию подтягивается из отчёта по кампаниям (если загружен).
-              Можно переименовать вручную — это имеет приоритет.
+              Галочка определяет, попадёт ли кампания в текст сообщения. На суммы итога это не влияет.
             </div>
           </div>
           <div class="row">
@@ -177,15 +185,19 @@
 
         <div class="row">
           <button id="btnGenerate" class="btn" disabled>Сформировать сообщение</button>
-          <button id="btnCopy" class="btn secondary" disabled>Скопировать</button>
           <span class="small" id="hint"></span>
         </div>
       </div>
 
-      <!-- RIGHT: message output -->
+      <!-- RIGHT: message output + copy button -->
       <div class="card stickyTop">
         <label>Сообщение</label>
         <textarea id="output" class="mono" placeholder="Здесь появится сообщение…"></textarea>
+        <div class="hr"></div>
+        <div class="row">
+          <button id="btnCopy" class="btn secondary" disabled>Скопировать</button>
+          <span class="small" id="copyHint"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -205,14 +217,17 @@
       totalLabel: document.getElementById('totalLabel'),
       totalStatus: document.getElementById('totalStatus'),
       hint: document.getElementById('hint'),
+      copyHint: document.getElementById('copyHint'),
     };
 
     // --- State ---
-    let groupRows = [];                 // rows from groups report
-    let campaignsAgg = [];              // aggregated campaigns
-    const campaignNamesFromReport = new Map(); // id -> name (from campaigns report)
-    const campaignNamesManual = new Map();     // id -> name (manual override)
-    const campaignComments = new Map();        // id -> comment
+    let groupRows = [];                       // rows from groups report
+    let campaignsAgg = [];                    // aggregated campaigns
+    const campaignNamesFromReport = new Map();// id -> name (from campaigns report)
+    const campaignNamesManual = new Map();    // id -> name (manual override)
+    const campaignComments = new Map();       // id -> comment
+    const campaignIncluded = new Map();       // id -> boolean include
+    let totalsIncluded = true;                // include totals block
     let totalComment = '';
 
     let groupsLoaded = false;
@@ -315,6 +330,12 @@
       return (autoName || '').trim();
     }
 
+    function ensureIncludeState(){
+      for (const c of campaignsAgg){
+        if (!campaignIncluded.has(c.id)) campaignIncluded.set(c.id, true);
+      }
+    }
+
     function setPill(){
       const parts = [];
       if (groupsLoaded) parts.push('Группы: загружено');
@@ -323,7 +344,7 @@
       if (campaignsReportLoaded) parts.push('Кампании: имена загружены');
       else parts.push('Кампании: имена не загружены');
 
-      const ok = groupsLoaded; // message can be built only if groups are loaded
+      const ok = groupsLoaded;
       els.statusPill.textContent = parts.join(' · ');
       els.statusPill.classList.toggle('ok', ok);
       els.statusPill.classList.toggle('bad', !ok);
@@ -385,6 +406,7 @@
       });
 
       campaignsAgg = list;
+      ensureIncludeState();
     }
 
     function guessTitleAndTotalsLabel(){
@@ -413,9 +435,22 @@
       let out = '';
       if (title) out += `✅ ${title}\n\n`;
 
+      // IMPORTANT: totals sums are calculated over ALL campaigns (not filtered)
       let sumSpend = 0, sumImp = 0, sumListen = 0, sumAdds = 0;
 
+      // First: compute totals using all campaigns
       for (const c of campaignsAgg){
+        sumSpend += asNumber(c.spend);
+        sumImp += asInt(c.imp);
+        sumListen += asInt(c.listen);
+        sumAdds += asInt(c.adds);
+      }
+
+      // Second: output only included campaigns
+      for (const c of campaignsAgg){
+        const include = campaignIncluded.get(c.id) !== false; // default true
+        if (!include) continue;
+
         const name = resolveCampaignName(c.id, c.autoName);
         const comment = campaignComments.get(c.id) || '';
 
@@ -423,8 +458,6 @@
         const imp = asInt(c.imp);
         const listen = asInt(c.listen);
         const adds = asInt(c.adds);
-
-        sumSpend += spend; sumImp += imp; sumListen += listen; sumAdds += adds;
 
         out += `➡ ${name}\n\n`;
         out += `Потрачено: ${fmtMoney(spend)} ₽\n`;
@@ -439,7 +472,8 @@
         out += `Комментарий: ${comment}\n\n`;
       }
 
-      if (totalsLabel){
+      // Totals block visibility is controlled by checkbox, but sums are still global
+      if (totalsLabel && totalsIncluded){
         const totalCpa = (sumAdds > 0) ? (sumSpend / sumAdds) : 0;
         out += `➡ ${totalsLabel}\n\n`;
         out += `Потрачено: ${fmtMoney(sumSpend)} ₽\n`;
@@ -464,12 +498,17 @@
 
       let html = `<table>
         <thead><tr>
+          <th class="checkCell">✓</th>
           <th style="width:44%">Кампания (можно переименовать)</th>
           <th style="width:14%">Статус</th>
           <th style="width:42%">Комментарий</th>
         </tr></thead><tbody>`;
 
+      // Totals row with checkbox
       html += `<tr>
+        <td class="checkCell">
+          <input id="totalsInclude" type="checkbox" ${totalsIncluded ? 'checked' : ''} title="Показывать итоговый блок в сообщении">
+        </td>
         <td><b>Итог (сумма по всем кампаниям)</b></td>
         <td></td>
         <td>
@@ -484,10 +523,14 @@
         const nameReport = (campaignNamesFromReport.get(c.id) || '').trim();
         const nameManual = (campaignNamesManual.get(c.id) || '').trim();
         const displayName = resolveCampaignName(c.id, c.autoName);
+        const include = campaignIncluded.get(c.id) !== false;
 
         const src = nameManual ? 'ручн.' : (nameReport ? 'из отчёта кампаний' : 'авто');
 
         html += `<tr>
+          <td class="checkCell">
+            <input data-include="${escapeHtmlAttr(c.id)}" type="checkbox" ${include ? 'checked' : ''} title="Включать кампанию в сообщение">
+          </td>
           <td>
             <div class="small">ID: <span class="mono">${escapeHtml(c.id)}</span> · групп: ${escapeHtml(String(c.groupsCount))} · источник: ${escapeHtml(src)}</div>
             <input data-cname="${escapeHtmlAttr(c.id)}" type="text" value="${escapeHtmlAttr(displayName)}" placeholder="Название кампании">
@@ -506,6 +549,14 @@
       html += `</tbody></table>`;
       els.tableWrap.innerHTML = html;
 
+      // totals
+      const totalsCb = document.getElementById('totalsInclude');
+      if (totalsCb){
+        totalsCb.addEventListener('change', (e)=>{
+          totalsIncluded = !!e.target.checked;
+          buildMessage();
+        });
+      }
       const totalInp = document.getElementById('totalCommentInput');
       if (totalInp){
         totalInp.addEventListener('input', (e)=>{
@@ -514,17 +565,28 @@
         });
       }
 
+      // include checkboxes
+      els.tableWrap.querySelectorAll('input[data-include]').forEach(inp => {
+        inp.addEventListener('change', (e)=>{
+          const id = e.target.getAttribute('data-include');
+          campaignIncluded.set(id, !!e.target.checked);
+          buildMessage();
+        });
+      });
+
+      // rename
       els.tableWrap.querySelectorAll('input[data-cname]').forEach(inp => {
         inp.addEventListener('input', (e)=>{
           const id = e.target.getAttribute('data-cname');
           campaignNamesManual.set(id, e.target.value);
-          // re-sort for neatness
+          // keep sorting consistent with new name
           aggregateToCampaigns();
           renderTable();
           buildMessage();
         });
       });
 
+      // comment
       els.tableWrap.querySelectorAll('input[data-ccomment]').forEach(inp => {
         inp.addEventListener('input', (e)=>{
           const id = e.target.getAttribute('data-ccomment');
@@ -557,7 +619,6 @@
 
     async function handleGroupsFile(file){
       const wb = await parseXlsx(file);
-      // usually "Группы"
       groupRows = sheetToRowsNormalized(wb, 'Группы');
       groupsLoaded = groupRows.length > 0;
 
@@ -577,7 +638,6 @@
 
     async function handleCampaignsFile(file){
       const wb = await parseXlsx(file);
-      // expected sheet "Кампании"
       const rows = sheetToRowsNormalized(wb, 'Кампании');
 
       campaignNamesFromReport.clear();
@@ -594,31 +654,29 @@
 
       campaignsReportLoaded = campaignNamesFromReport.size > 0;
 
-      // If groups already loaded, re-aggregate to apply names, then refresh UI/message
       if (groupsLoaded){
         aggregateToCampaigns();
         renderTable();
         buildMessage();
       }
 
-      return {
-        count: campaignNamesFromReport.size,
-        sampleSheet: wb.SheetNames[0] || ''
-      };
+      return { count: campaignNamesFromReport.size };
     }
 
     function resetForNewGroups(){
-      // Do NOT wipe campaignNamesFromReport (it can be reused)
       campaignsAgg = [];
       groupRows = [];
       campaignComments.clear();
       campaignNamesManual.clear();
+      campaignIncluded.clear();
+      totalsIncluded = true;
       totalComment = '';
       if (els.totalStatus) els.totalStatus.value = '';
       els.output.value = '';
       els.btnGenerate.disabled = true;
       els.btnCopy.disabled = true;
       els.hint.textContent = '';
+      els.copyHint.textContent = '';
     }
 
     els.fileGroups.addEventListener('change', async (e)=>{
@@ -691,7 +749,7 @@
     els.btnGenerate.addEventListener('click', ()=>{
       if (!groupsLoaded || !campaignsAgg.length) return;
       buildMessage();
-      els.hint.textContent = 'Готово. Можно скопировать.';
+      els.hint.textContent = 'Готово. Скопируй справа.';
     });
 
     els.btnCopy.addEventListener('click', async ()=>{
@@ -699,12 +757,12 @@
       if (!text.trim()) return;
       try{
         await navigator.clipboard.writeText(text);
-        els.hint.textContent = 'Скопировано в буфер обмена.';
+        els.copyHint.textContent = 'Скопировано в буфер обмена.';
       }catch(e){
         els.output.focus();
         els.output.select();
         document.execCommand('copy');
-        els.hint.textContent = 'Скопировано (через выделение).';
+        els.copyHint.textContent = 'Скопировано (через выделение).';
       }
     });
 
@@ -712,7 +770,6 @@
     els.totalLabel.addEventListener('input', ()=>{ if (groupsLoaded) buildMessage(); });
     els.totalStatus.addEventListener('change', ()=>{ if (groupsLoaded) buildMessage(); });
 
-    // init pill
     setPill();
   </script>
 </body>
