@@ -207,6 +207,7 @@
     let groupRows = [];                          // groups report rows
     let campaignsAgg = [];                       // aggregated campaigns
     const campaignNamesFromReport = new Map();   // id -> name (from campaigns report)  [PRIORITY #1]
+    const campaignIdsByName = new Map();        // norm(name) -> id (from campaigns report)  [JOIN helper]
     const campaignAutoOverrides = new Map();     // id -> name (manual override)        [PRIORITY #2]
     const campaignComments = new Map();          // id -> comment
     const campaignIncluded = new Map();          // id -> boolean include
@@ -224,6 +225,26 @@
         .replace(/\u00A0/g,' ')      // NBSP -> space
         .replace(/\s+/g,' ')
         .trim();
+    }
+
+    function isNameKey(id){ return String(id||'').startsWith('name:'); }
+    function nameFromKey(id){ return isNameKey(id) ? String(id).slice(5) : ''; }
+
+    function inferCampaignNameFromGroupName(groupName){
+      const s = String(groupName ?? '');
+      if (!s.trim()) return '';
+      const isHidden = /\(\s*скрытые\s*\)/i.test(s);
+      const marker = ' - слушатели - ';
+      let core = s.includes(marker) ? (s.split(marker)[1] || '') : s;
+
+      // Remove geography tail like " - Россия, Беларусь..." (VK export specific)
+      core = core.replace(/\s*-\s*Россия.*$/i, '').trim();
+
+      // Remove hidden marker from core; we will add standardized suffix back if needed
+      core = core.replace(/\(\s*скрытые\s*\)/i, '').trim();
+
+      if (!core) return '';
+      return isHidden ? `${core} (скрытые)` : core;
     }
     function escapeHtmlAttr(s){ return escapeHtml(s).replaceAll('\n',' '); }
 
@@ -276,9 +297,14 @@
 
     // PRIORITY: 1) campaigns report 2) manual override 3) empty
     function resolveCampaignNameForUI(id){
-      const fromReport = (campaignNamesFromReport.get(id) || '').trim(); // priority #1
       const override = (campaignAutoOverrides.get(id) || '').trim();     // priority #2 (only if set)
-      return (override || fromReport || '').trim();
+      if (override) return override;
+
+      // If campaign key is name-based (no ID in groups export), show the embedded name.
+      if (isNameKey(id)) return nameFromKey(id).trim();
+
+      const fromReport = (campaignNamesFromReport.get(id) || '').trim(); // priority #1
+      return (fromReport || '').trim();
     }
 
     // For message: avoid empty "➡ " line by falling back to ID if name is empty
@@ -309,7 +335,9 @@
     }
 
     function aggregateToCampaigns(){
-      const KEY_CAMPAIGN_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign','CampaignId','ID Campaign'];
+      const KEY_CAMPAIGN_ID   = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign','CampaignId','ID Campaign'];
+      const KEY_CAMPAIGN_NAME = ['Название кампании','Кампания','Campaign name','campaign_name','Name'];
+      const KEY_GROUP_NAME    = ['Название группы','Group name'];
       const KEY_STATUS      = ['Статус','Status'];
       const KEY_SPEND       = ['Потрачено всего, ₽','Потрачено, ₽','Потрачено'];
       const KEY_IMP         = ['Показы','Impressions'];
@@ -319,7 +347,20 @@
       const map = new Map();
       for (const r of groupRows){
         const cidRaw = getVal(r, KEY_CAMPAIGN_ID);
-        const cid = String(cidRaw ?? '').trim();
+        let cid = String(cidRaw ?? '').trim();
+
+        // Some VK exports for "Группы" do NOT contain campaign ID.
+        // Fallback: infer campaign name from group name and join with campaigns report by name.
+        if (!cid){
+          const cname = String(getVal(r, KEY_CAMPAIGN_NAME) ?? '').trim();
+          const gname = String(getVal(r, KEY_GROUP_NAME) ?? '').trim();
+          const inferred = (cname || inferCampaignNameFromGroupName(gname)).trim();
+          if (inferred){
+            const joinedId = campaignIdsByName.get(normKey(inferred));
+            cid = joinedId ? String(joinedId).trim() : ('name:' + inferred);
+          }
+        }
+
         if (!cid) continue;
 
         const st = String(getVal(r, KEY_STATUS) ?? '').trim();
@@ -611,6 +652,8 @@
       const rows = sheetToRowsNormalized(wb, 'Кампании');
 
       campaignNamesFromReport.clear();
+      campaignIdsByName.clear();
+      campaignIdsByName.clear();
 
       const KEY_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign'];
       const KEY_NAME = ['Название кампании','Campaign name','campaign_name','Name'];
@@ -618,7 +661,10 @@
       for (const r of rows){
         const id = String(getVal(r, KEY_ID) ?? '').trim();
         const name = String(getVal(r, KEY_NAME) ?? '').trim();
-        if (id && name) campaignNamesFromReport.set(id, name);
+        if (id && name){
+        campaignNamesFromReport.set(id, name);
+        campaignIdsByName.set(normKey(name), id);
+      }
       }
 
       campaignsReportLoaded = campaignNamesFromReport.size > 0;
@@ -693,6 +739,7 @@
       const f = e.target.files?.[0];
       if (!f){
         campaignNamesFromReport.clear();
+      campaignIdsByName.clear();
         campaignsReportLoaded = false;
         setPill();
         if (groupsLoaded){
