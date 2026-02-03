@@ -219,14 +219,11 @@
     const nfInt = new Intl.NumberFormat('ru-RU');
     const nfMoney = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    function normKey(k){ return String(k ?? '').replace(/\s+/g,' ').trim(); }
-    function escapeHtml(s){
-      return String(s ?? '')
-        .replaceAll('&','&amp;')
-        .replaceAll('<','&lt;')
-        .replaceAll('>','&gt;')
-        .replaceAll('"','&quot;')
-        .replaceAll("'","&#039;");
+    function normKey(k){
+      return String(k ?? '')
+        .replace(/\u00A0/g,' ')      // NBSP -> space
+        .replace(/\s+/g,' ')
+        .trim();
     }
     function escapeHtmlAttr(s){ return escapeHtml(s).replaceAll('\n',' '); }
 
@@ -297,22 +294,27 @@
     }
 
     function setPill(){
-      const parts = [];
-      parts.push(groupsLoaded ? 'Группы: загружено' : 'Группы: нет');
-      parts.push(campaignsReportLoaded ? 'Кампании: имена загружены' : 'Кампании: имена не загружены');
-      const ok = groupsLoaded;
-      els.statusPill.textContent = parts.join(' · ');
-      els.statusPill.classList.toggle('ok', ok);
-      els.statusPill.classList.toggle('bad', !ok);
+      // Two independent indicators:
+      // - Groups file loaded?
+      // - Campaign names file loaded?
+      const gText = groupsLoaded ? 'Группы: загружено' : 'Группы: нет';
+      const cText = campaignsReportLoaded ? 'Кампании: имена загружены' : 'Кампании: имена не загружены';
+
+      // Keep pill container neutral; color each segment separately.
+      els.statusPill.classList.remove('ok','bad');
+      els.statusPill.innerHTML =
+        `<span class="${groupsLoaded ? 'ok' : 'bad'}">${gText}</span>` +
+        ` <span class="small" style="opacity:.6">·</span> ` +
+        `<span class="${campaignsReportLoaded ? 'ok' : 'bad'}">${cText}</span>`;
     }
 
     function aggregateToCampaigns(){
       const KEY_CAMPAIGN_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign','CampaignId','ID Campaign'];
-      const KEY_STATUS      = ['Статус'];
-      const KEY_SPEND       = ['Потрачено всего, ₽', 'Потрачено всего, ₽ ', 'Потрачено, ₽'];
-      const KEY_IMP         = ['Показы'];
-      const KEY_LISTEN      = ['Начали прослушивание'];
-      const KEY_ADDS        = ['Добавили аудио'];
+      const KEY_STATUS      = ['Статус','Status'];
+      const KEY_SPEND       = ['Потрачено всего, ₽','Потрачено, ₽','Потрачено'];
+      const KEY_IMP         = ['Показы','Impressions'];
+      const KEY_LISTEN      = ['Начали прослушивание','Started listening','Listen starts'];
+      const KEY_ADDS        = ['Добавили аудио','Added audio','Adds'];
 
       const map = new Map();
       for (const r of groupRows){
@@ -581,9 +583,23 @@
         return { missing: ['(пустой файл)'] };
       }
 
-      const must = ['ID кампании','Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
-      const cols = new Set(Object.keys(groupRows[0] || {}));
-      const missing = must.filter(m => !cols.has(m));
+      // Column validation is name-based (order-independent) + header normalization.
+      const cols = new Set(Object.keys(groupRows[0] || {}).map(normKey));
+
+      function hasAnyCol(candidates){
+        return candidates.some(c => cols.has(normKey(c)));
+      }
+
+      const required = [
+        { label: 'ID кампании', candidates: ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign','CampaignId','ID Campaign'] },
+        { label: 'Статус', candidates: ['Статус','Status'] },
+        { label: 'Потрачено всего, ₽', candidates: ['Потрачено всего, ₽','Потрачено, ₽','Потрачено'] },
+        { label: 'Показы', candidates: ['Показы','Impressions'] },
+        { label: 'Начали прослушивание', candidates: ['Начали прослушивание','Started listening','Listen starts'] },
+        { label: 'Добавили аудио', candidates: ['Добавили аудио','Added audio','Adds'] },
+      ];
+
+      const missing = required.filter(r => !hasAnyCol(r.candidates)).map(r => r.label);
 
       aggregateToCampaigns();
       guessTitleAndTotalsLabel();
