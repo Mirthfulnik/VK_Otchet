@@ -15,6 +15,7 @@
       --btn2:#334155;
       --bad:#ef4444;
       --ok:#22c55e;
+      --warn:#f59e0b;
     }
     *{box-sizing:border-box}
     body{
@@ -65,14 +66,22 @@
       font-weight:600;
     }
     .btn.secondary{background:var(--btn2)}
+    .btn.danger{background:transparent;border:1px solid rgba(239,68,68,.7);color:var(--bad)}
+    .btn.mini{padding:7px 10px;border-radius:10px;font-weight:600;font-size:12px}
     .btn:disabled{opacity:.5;cursor:not-allowed}
     .pill{
-      display:inline-flex;align-items:center;gap:6px;
+      display:inline-flex;align-items:center;gap:10px;
       padding:6px 10px;border-radius:999px;
       border:1px solid rgba(36,48,68,.9);
       background:#0b1220;color:var(--muted);
       font-size:12px;
+      line-height:1;
+      white-space:nowrap;
     }
+    .seg{display:inline-flex;align-items:center;gap:6px}
+    .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
+    .dot.ok{background:var(--ok)}
+    .dot.bad{background:var(--bad)}
     .ok{color:var(--ok)}
     .bad{color:var(--bad)}
     .hr{height:1px;background:rgba(36,48,68,.9);margin:10px 0}
@@ -89,6 +98,11 @@
     .stickyTop{position:sticky; top:12px;}
     .checkCell{width:44px;text-align:center;}
     input[type="checkbox"]{width:18px;height:18px;accent-color: var(--btn);}
+    .actionsCell{width:170px}
+    .detailsRow td{background:rgba(11,18,32,.45)}
+    .innerTable{width:100%;border-collapse:collapse;margin-top:6px}
+    .innerTable th,.innerTable td{border-bottom:1px solid rgba(36,48,68,.55);padding:6px 6px}
+    .mutedLine{color:var(--muted)}
   </style>
 </head>
 <body>
@@ -102,18 +116,17 @@
             <div style="min-width:260px;flex:1">
               <label>1) Отчёт по группам (.xlsx)</label>
               <input id="fileGroups" type="file" accept=".xlsx,.xls" />
-              <div class="small" style="margin-top:6px">
-              </div>
             </div>
             <div style="min-width:260px;flex:1">
               <label>2) Отчёт по кампаниям (.xlsx)</label>
               <input id="fileCampaigns" type="file" accept=".xlsx,.xls" />
-              <div class="small" style="margin-top:6px">
-              </div>
             </div>
           </div>
           <div class="row">
-            <span id="statusPill" class="pill">Файлы не загружены</span>
+            <span id="statusPill" class="pill">
+              <span class="seg"><span id="dotGroups" class="dot bad"></span><span id="txtGroups">Группы: нет</span></span>
+              <span class="seg"><span id="dotCampaigns" class="dot bad"></span><span id="txtCampaigns">Кампании: имена не загружены</span></span>
+            </span>
           </div>
         </div>
 
@@ -123,14 +136,10 @@
           <div style="flex:1;min-width:260px">
             <label>Заголовок сообщения (строка с ✅)</label>
             <input id="title" type="text" placeholder="Например: SAYAN - Гордая" />
-            <div class="small" style="margin-top:6px">
-            </div>
           </div>
           <div style="flex:1;min-width:260px">
             <label>Строка итогов (➡ ... - все кампании)</label>
             <input id="totalLabel" type="text" placeholder="Например: SAYAN - Гордая (скрытые) - все кампании" />
-            <div class="small" style="margin-top:6px">
-            </div>
 
             <div style="margin-top:10px">
               <label>Статус итогового сообщения</label>
@@ -153,9 +162,8 @@
 
         <div class="row" style="justify-content:space-between">
           <div>
-            <div style="font-weight:700">Кампании и комментарии</div>
-            <div class="small">
-            </div>
+            <div style="font-weight:700">Кампании / группы и комментарии</div>
+            <div class="small">Можно исключать кампании целиком или отдельные группы внутри кампании.</div>
           </div>
           <div class="row">
             <span class="pill">Статус кампании: <span class="ok">active</span> если есть активные группы, иначе <span class="bad">blocked</span></span>
@@ -192,6 +200,10 @@
       fileGroups: document.getElementById('fileGroups'),
       fileCampaigns: document.getElementById('fileCampaigns'),
       statusPill: document.getElementById('statusPill'),
+      dotGroups: document.getElementById('dotGroups'),
+      dotCampaigns: document.getElementById('dotCampaigns'),
+      txtGroups: document.getElementById('txtGroups'),
+      txtCampaigns: document.getElementById('txtCampaigns'),
       btnGenerate: document.getElementById('btnGenerate'),
       btnCopy: document.getElementById('btnCopy'),
       output: document.getElementById('output'),
@@ -204,12 +216,15 @@
     };
 
     // --- State ---
-    let groupRows = [];                          // groups report rows
+    let groupRows = [];                          // groups report rows (normalized keys)
     let campaignsAgg = [];                       // aggregated campaigns
     const campaignNamesFromReport = new Map();   // id -> name (from campaigns report)  [PRIORITY #1]
     const campaignAutoOverrides = new Map();     // id -> name (manual override)        [PRIORITY #2]
     const campaignComments = new Map();          // id -> comment
-    const campaignIncluded = new Map();          // id -> boolean include
+    const campaignIncluded = new Map();          // id -> boolean include (campaign)
+    const deletedCampaigns = new Set();          // ids hidden from UI
+    const groupIncluded = new Map();             // groupId -> boolean include (within campaign)
+
     let totalsIncluded = true;                   // include totals block
     let totalComment = '';
 
@@ -219,7 +234,12 @@
     const nfInt = new Intl.NumberFormat('ru-RU');
     const nfMoney = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    function normKey(k){ return String(k ?? '').replace(/\s+/g,' ').trim(); }
+    // Normalization:
+    // - collapse multiple spaces
+    // - trim start/end
+    // This handles headers like "Потрачено всего, ₽ " vs "Потрачено всего, ₽".
+    function normKey(k){ return String(k ?? '').replace(/\\s+/g,' ').trim(); }
+
     function escapeHtml(s){
       return String(s ?? '')
         .replaceAll('&','&amp;')
@@ -228,8 +248,9 @@
         .replaceAll('"','&quot;')
         .replaceAll("'","&#039;");
     }
-    function escapeHtmlAttr(s){ return escapeHtml(s).replaceAll('\n',' '); }
+    function escapeHtmlAttr(s){ return escapeHtml(s).replaceAll('\\n',' '); }
 
+    // Get value by header name (order-independent)
     function getVal(row, keyCandidates){
       for (const k of keyCandidates){
         const nk = normKey(k);
@@ -241,13 +262,13 @@
     function asNumber(x){
       if (x === null || x === undefined) return 0;
       if (typeof x === 'number') return isFinite(x) ? x : 0;
-      const s = String(x).replace(/\s/g,'').replace(',', '.');
+      const s = String(x).replace(/\\s/g,'').replace(',', '.');
       const n = Number(s);
       return isFinite(n) ? n : 0;
     }
     function asInt(x){ return Math.round(asNumber(x)); }
     function fmtInt(x){ return nfInt.format(asInt(x)); }
-    function fmtMoney(x){ return nfMoney.format(asNumber(x)).replace(/\u00A0/g,' '); }
+    function fmtMoney(x){ return nfMoney.format(asNumber(x)).replace(/\\u00A0/g,' '); }
 
     function statusText(raw){
       const s = String(raw ?? '').toLowerCase().trim();
@@ -274,13 +295,13 @@
       return String(name ?? '').trim();
     }
     function removeTrailingParen(trackPart){
-      return String(trackPart ?? '').replace(/\s*\([^)]*\)\s*$/,'').trim();
+      return String(trackPart ?? '').replace(/\\s*\\([^)]*\\)\\s*$/,'').trim();
     }
 
     // PRIORITY: 1) campaigns report 2) manual override 3) empty
     function resolveCampaignNameForUI(id){
       const fromReport = (campaignNamesFromReport.get(id) || '').trim(); // priority #1
-      const override = (campaignAutoOverrides.get(id) || '').trim();     // priority #2 (only if set)
+      const override = (campaignAutoOverrides.get(id) || '').trim();     // priority #2
       return (override || fromReport || '').trim();
     }
 
@@ -297,28 +318,45 @@
     }
 
     function setPill(){
-      const parts = [];
-      parts.push(groupsLoaded ? 'Группы: загружено' : 'Группы: нет');
-      parts.push(campaignsReportLoaded ? 'Кампании: имена загружены' : 'Кампании: имена не загружены');
-      const ok = groupsLoaded;
-      els.statusPill.textContent = parts.join(' · ');
-      els.statusPill.classList.toggle('ok', ok);
-      els.statusPill.classList.toggle('bad', !ok);
+      // 4-state indicator: green/red independently for groups + campaign-names
+      els.txtGroups.textContent = groupsLoaded ? 'Группы: загружено' : 'Группы: нет';
+      els.dotGroups.classList.toggle('ok', groupsLoaded);
+      els.dotGroups.classList.toggle('bad', !groupsLoaded);
+
+      els.txtCampaigns.textContent = campaignsReportLoaded ? 'Кампании: имена загружены' : 'Кампании: имена не загружены';
+      els.dotCampaigns.classList.toggle('ok', campaignsReportLoaded);
+      els.dotCampaigns.classList.toggle('bad', !campaignsReportLoaded);
     }
 
     function aggregateToCampaigns(){
-      const KEY_CAMPAIGN_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign','CampaignId','ID Campaign'];
+      // Flexible headers (by name, order-independent)
+      const KEY_CAMPAIGN_ID = ['ID кампании','Campaign ID','campaign_id','CampaignId'];
+      const KEY_GROUP_ID    = ['ID группы','Group ID','group_id','GroupId'];
+      const KEY_GROUP_NAME  = ['Название группы','Group name','group_name','Name'];
+
       const KEY_STATUS      = ['Статус'];
-      const KEY_SPEND       = ['Потрачено всего, ₽', 'Потрачено всего, ₽ ', 'Потрачено, ₽'];
+      const KEY_SPEND       = ['Потрачено всего, ₽', 'Потрачено, ₽'];
       const KEY_IMP         = ['Показы'];
       const KEY_LISTEN      = ['Начали прослушивание'];
       const KEY_ADDS        = ['Добавили аудио'];
 
       const map = new Map();
+
       for (const r of groupRows){
+        const gid = String(getVal(r, KEY_GROUP_ID) ?? '').trim();
+        const gname = String(getVal(r, KEY_GROUP_NAME) ?? '').trim();
+
+        // 1) preferred: campaign id
+        // 2) fallback: group id (so сервис не ломается, если в выгрузке нет ID кампании)
         const cidRaw = getVal(r, KEY_CAMPAIGN_ID);
-        const cid = String(cidRaw ?? '').trim();
+        const cid = String((cidRaw ?? '')).trim() || (gid ? `G:${gid}` : '');
+
         if (!cid) continue;
+
+        // group-level include
+        const gKey = gid ? String(gid) : `${cid}::${gname || 'group'}`;
+        const gInc = groupIncluded.get(gKey) !== false;
+        if (!gInc) continue;
 
         const st = String(getVal(r, KEY_STATUS) ?? '').trim();
         const spend = asNumber(getVal(r, KEY_SPEND));
@@ -327,15 +365,22 @@
         const adds = asInt(getVal(r, KEY_ADDS));
 
         if (!map.has(cid)){
-          map.set(cid, { id: cid, statuses: [], spend: 0, imp: 0, listen: 0, adds: 0, groupsCount: 0 });
+          map.set(cid, { id: cid, statuses: [], spend: 0, imp: 0, listen: 0, adds: 0, totalGroups: 0, groups: [] });
         }
         const a = map.get(cid);
+        a.totalGroups += 1;
         a.statuses.push(st);
         a.spend += spend;
         a.imp += imp;
         a.listen += listen;
         a.adds += adds;
-        a.groupsCount += 1;
+        a.groups.push({
+          gid: gKey,
+          gidRaw: gid,
+          name: gname,
+          status: st,
+          spend, imp, listen, adds
+        });
       }
 
       const list = [];
@@ -347,7 +392,8 @@
           imp: a.imp,
           listen: a.listen,
           adds: a.adds,
-          groupsCount: a.groupsCount,
+          groupsCount: a.totalGroups,
+          groups: a.groups
         });
       }
 
@@ -360,7 +406,7 @@
         return nx.localeCompare(ny, 'ru', { sensitivity:'base' });
       });
 
-      campaignsAgg = list;
+      campaignsAgg = list.filter(c => !deletedCampaigns.has(c.id));
       ensureIncludeState();
     }
 
@@ -390,11 +436,13 @@
       const title = (els.title.value || '').trim();
       const totalsLabel = (els.totalLabel.value || '').trim();
       let out = '';
-      if (title) out += `✅ ${title}\n\n`;
+      if (title) out += `✅ ${title}\\n\\n`;
 
-      // Totals over ALL campaigns (not filtered)
+      // Totals over ALL included groups/campaigns (respects deletions/exclusions at UI level)
       let sumSpend = 0, sumImp = 0, sumListen = 0, sumAdds = 0;
       for (const c of campaignsAgg){
+        const includeCampaign = campaignIncluded.get(c.id) !== false;
+        if (!includeCampaign) continue;
         sumSpend += asNumber(c.spend);
         sumImp += asInt(c.imp);
         sumListen += asInt(c.listen);
@@ -414,33 +462,33 @@
         const listen = asInt(c.listen);
         const adds = asInt(c.adds);
 
-        out += `➡ ${name}\n\n`;
-        out += `Потрачено: ${fmtMoney(spend)} ₽\n`;
-        out += `Показы: ${fmtInt(imp)}\n`;
-        out += `Начали прослушивание: ${fmtInt(listen)}\n`;
-        out += `Добавлено: ${fmtInt(adds)}\n`;
+        out += `➡ ${name}\\n\\n`;
+        out += `Потрачено: ${fmtMoney(spend)} ₽\\n`;
+        out += `Показы: ${fmtInt(imp)}\\n`;
+        out += `Начали прослушивание: ${fmtInt(listen)}\\n`;
+        out += `Добавлено: ${fmtInt(adds)}\\n`;
 
         const cpa = (adds > 0) ? (spend / adds) : 0;
-        out += `Ср. стоимость добавления: ${adds>0 ? (fmtMoney(cpa) + ' ₽') : '—'}\n\n`;
+        out += `Ср. стоимость добавления: ${adds>0 ? (fmtMoney(cpa) + ' ₽') : '—'}\\n\\n`;
 
-        out += `Статус: ${statusText(c.statusRaw)}\n`;
-        out += `Комментарий: ${comment}\n\n`;
+        out += `Статус: ${statusText(c.statusRaw)}\\n`;
+        out += `Комментарий: ${comment}\\n\\n`;
       }
 
       if (totalsLabel && totalsIncluded){
         const totalCpa = (sumAdds > 0) ? (sumSpend / sumAdds) : 0;
-        out += `➡ ${totalsLabel}\n\n`;
-        out += `Потрачено: ${fmtMoney(sumSpend)} ₽\n`;
-        out += `Показы: ${fmtInt(sumImp)}\n`;
-        out += `Начали прослушивание: ${fmtInt(sumListen)}\n`;
-        out += `Добавлено: ${fmtInt(sumAdds)}\n`;
-        out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}\n\n`;
+        out += `➡ ${totalsLabel}\\n\\n`;
+        out += `Потрачено: ${fmtMoney(sumSpend)} ₽\\n`;
+        out += `Показы: ${fmtInt(sumImp)}\\n`;
+        out += `Начали прослушивание: ${fmtInt(sumListen)}\\n`;
+        out += `Добавлено: ${fmtInt(sumAdds)}\\n`;
+        out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}\\n\\n`;
 
         const totalStatus = (els.totalStatus?.value || '').trim();
-        out += `Статус: ${totalStatus}\nКомментарий: ${totalComment}\n`;
+        out += `Статус: ${totalStatus}\\nКомментарий: ${totalComment}\\n`;
       }
 
-      els.output.value = out.trim() + '\n';
+      els.output.value = out.trim() + '\\n';
       els.btnCopy.disabled = !els.output.value.trim();
     }
 
@@ -455,18 +503,20 @@
           <th class="checkCell">✓</th>
           <th style="width:44%">Название кампании (авто)</th>
           <th style="width:14%">Статус</th>
-          <th style="width:42%">Комментарий</th>
+          <th style="width:34%">Комментарий</th>
+          <th class="actionsCell">Действия</th>
         </tr></thead><tbody>`;
 
       html += `<tr>
         <td class="checkCell">
           <input id="totalsInclude" type="checkbox" ${totalsIncluded ? 'checked' : ''} title="Показывать итоговый блок в сообщении">
         </td>
-        <td><b>Итог (сумма по всем кампаниям)</b></td>
+        <td><b>Итог (сумма по включённым кампаниям)</b></td>
         <td></td>
         <td>
           <input id="totalCommentInput" type="text" placeholder="Комментарий к суммарному блоку" value="${escapeHtmlAttr(totalComment)}">
         </td>
+        <td></td>
       </tr>`;
 
       for (const c of campaignsAgg){
@@ -479,13 +529,14 @@
         const displayName = resolveCampaignNameForUI(c.id); // may be empty
 
         const src = override ? 'ручн.' : (fromReport ? 'из отчёта кампаний' : '—');
+        const isFallbackGroupAsCampaign = String(c.id || '').startsWith('G:');
 
         html += `<tr>
           <td class="checkCell">
             <input data-include="${escapeHtmlAttr(c.id)}" type="checkbox" ${include ? 'checked' : ''} title="Включать кампанию в сообщение">
           </td>
           <td>
-            <div class="small">ID: <span class="mono">${escapeHtml(c.id)}</span> · групп: ${escapeHtml(String(c.groupsCount))} · источник: ${escapeHtml(src)}</div>
+            <div class="small">ID: <span class="mono">${escapeHtml(c.id)}</span> · групп: ${escapeHtml(String(c.groupsCount))} · источник: ${escapeHtml(src)}${isFallbackGroupAsCampaign ? ' · <span class="mutedLine">режим без ID кампании</span>' : ''}</div>
             <input data-cauto="${escapeHtmlAttr(c.id)}" type="text" value="${escapeHtmlAttr(displayName)}" placeholder="(пусто) — введи название кампании">
             ${fromReport ? `<div class="small">Из отчёта кампаний: ${escapeHtml(fromReport)}</div>` : `<div class="small">Из отчёта кампаний: —</div>`}
           </td>
@@ -496,12 +547,62 @@
           <td>
             <input data-ccomment="${escapeHtmlAttr(c.id)}" type="text" placeholder="Оставить пустым" value="${escapeHtmlAttr(curComment)}">
           </td>
+          <td class="actionsCell">
+            <div class="row" style="gap:8px;flex-wrap:nowrap">
+              <button class="btn secondary mini" data-toggle="${escapeHtmlAttr(c.id)}">Группы</button>
+              <button class="btn danger mini" data-delc="${escapeHtmlAttr(c.id)}">Удалить</button>
+            </div>
+          </td>
+        </tr>`;
+
+        // details row
+        html += `<tr class="detailsRow" data-details="${escapeHtmlAttr(c.id)}" style="display:none">
+          <td colspan="5">
+            <div class="small">Группы внутри кампании (можно исключить конкретную группу):</div>
+            <table class="innerTable">
+              <thead>
+                <tr>
+                  <th style="width:44px;text-align:center">✓</th>
+                  <th>Группа</th>
+                  <th style="width:160px">Статус</th>
+                  <th style="width:220px">Метрики</th>
+                  <th style="width:110px">Действие</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${c.groups.map(g => {
+                  const gInc = groupIncluded.get(String(g.gid)) !== false;
+                  const gTitle = (g.name || '').trim() ? escapeHtml(g.name) : '<span class="mutedLine">(без названия)</span>';
+                  const gIdText = g.gidRaw ? `ID: <span class="mono">${escapeHtml(String(g.gidRaw))}</span>` : `Key: <span class="mono">${escapeHtml(String(g.gid))}</span>`;
+                  const metrics = `Показы: ${fmtInt(g.imp)} · Добавлено: ${fmtInt(g.adds)} · Потрачено: ${fmtMoney(g.spend)} ₽`;
+                  return `<tr>
+                    <td style="text-align:center">
+                      <input type="checkbox" data-ginclude="${escapeHtmlAttr(g.gid)}" ${gInc ? 'checked' : ''} title="Включать группу">
+                    </td>
+                    <td>
+                      <div>${gTitle}</div>
+                      <div class="small">${gIdText}</div>
+                    </td>
+                    <td>
+                      <span class="nowrap">${escapeHtml(statusText(g.status))}</span>
+                      <div class="small mono">${escapeHtml(String(g.status||''))}</div>
+                    </td>
+                    <td class="small">${escapeHtml(metrics)}</td>
+                    <td>
+                      <button class="btn danger mini" data-delg="${escapeHtmlAttr(g.gid)}">Удалить</button>
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </td>
         </tr>`;
       }
 
       html += `</tbody></table>`;
       els.tableWrap.innerHTML = html;
 
+      // totals controls
       const totalsCb = document.getElementById('totalsInclude');
       if (totalsCb){
         totalsCb.addEventListener('change', (e)=>{
@@ -517,6 +618,7 @@
         });
       }
 
+      // campaign include
       els.tableWrap.querySelectorAll('input[data-include]').forEach(inp => {
         inp.addEventListener('change', (e)=>{
           const id = e.target.getAttribute('data-include');
@@ -525,7 +627,7 @@
         });
       });
 
-      // Auto-name input: manual override only when user typed something (can be empty to clear override)
+      // campaign name override
       els.tableWrap.querySelectorAll('input[data-cauto]').forEach(inp => {
         inp.addEventListener('input', (e)=>{
           const id = e.target.getAttribute('data-cauto');
@@ -533,19 +635,64 @@
           if (val.trim()){
             campaignAutoOverrides.set(id, val);
           } else {
-            // if input is empty, remove override (fall back to report name or empty)
             campaignAutoOverrides.delete(id);
           }
+          // keep ordering stable after renaming
           aggregateToCampaigns();
           renderTable();
           buildMessage();
         });
       });
 
+      // campaign comment
       els.tableWrap.querySelectorAll('input[data-ccomment]').forEach(inp => {
         inp.addEventListener('input', (e)=>{
           const id = e.target.getAttribute('data-ccomment');
           campaignComments.set(id, e.target.value);
+          buildMessage();
+        });
+      });
+
+      // toggle details
+      els.tableWrap.querySelectorAll('button[data-toggle]').forEach(btn => {
+        btn.addEventListener('click', (e)=>{
+          const id = e.target.getAttribute('data-toggle');
+          const row = els.tableWrap.querySelector(`tr[data-details="${CSS.escape(id)}"]`);
+          if (!row) return;
+          row.style.display = (row.style.display === 'none' || !row.style.display) ? '' : 'none';
+        });
+      });
+
+      // delete campaign (hide)
+      els.tableWrap.querySelectorAll('button[data-delc]').forEach(btn => {
+        btn.addEventListener('click', (e)=>{
+          const id = e.target.getAttribute('data-delc');
+          deletedCampaigns.add(id);
+          campaignIncluded.set(id, false);
+          aggregateToCampaigns();
+          renderTable();
+          buildMessage();
+        });
+      });
+
+      // group include
+      els.tableWrap.querySelectorAll('input[data-ginclude]').forEach(inp => {
+        inp.addEventListener('change', (e)=>{
+          const gid = e.target.getAttribute('data-ginclude');
+          groupIncluded.set(gid, !!e.target.checked);
+          aggregateToCampaigns();
+          renderTable();
+          buildMessage();
+        });
+      });
+
+      // delete group (exclude)
+      els.tableWrap.querySelectorAll('button[data-delg]').forEach(btn => {
+        btn.addEventListener('click', (e)=>{
+          const gid = e.target.getAttribute('data-delg');
+          groupIncluded.set(gid, false);
+          aggregateToCampaigns();
+          renderTable();
           buildMessage();
         });
       });
@@ -573,6 +720,8 @@
 
     async function handleGroupsFile(file){
       const wb = await parseXlsx(file);
+
+      // Prefer "Группы", but tolerate a file where sheet name differs.
       groupRows = sheetToRowsNormalized(wb, 'Группы');
       groupsLoaded = groupRows.length > 0;
 
@@ -581,13 +730,14 @@
         return { missing: ['(пустой файл)'] };
       }
 
-      const must = ['ID кампании','Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
+      // required for normal mode (campaign aggregation). If there is no ID кампании, we still continue in fallback mode.
+      const mustSoft = ['Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
       const cols = new Set(Object.keys(groupRows[0] || {}));
-      const missing = must.filter(m => !cols.has(m));
+      const missing = mustSoft.filter(m => !cols.has(normKey(m)));
 
       aggregateToCampaigns();
       guessTitleAndTotalsLabel();
-      return { missing };
+      return { missing, hasCampaignId: cols.has('ID кампании') };
     }
 
     async function handleCampaignsFile(file){
@@ -596,7 +746,7 @@
 
       campaignNamesFromReport.clear();
 
-      const KEY_ID = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign'];
+      const KEY_ID = ['ID кампании','Campaign ID','campaign_id','CampaignId'];
       const KEY_NAME = ['Название кампании','Campaign name','campaign_name','Name'];
 
       for (const r of rows){
@@ -609,7 +759,6 @@
 
       if (groupsLoaded){
         aggregateToCampaigns();
-        // only auto-fill title/totalLabel if they are empty
         guessTitleAndTotalsLabel();
         renderTable();
         buildMessage();
@@ -624,6 +773,8 @@
       campaignComments.clear();
       campaignAutoOverrides.clear();
       campaignIncluded.clear();
+      deletedCampaigns.clear();
+      groupIncluded.clear();
       totalsIncluded = true;
       totalComment = '';
       if (els.totalStatus) els.totalStatus.value = '';
@@ -655,8 +806,10 @@
           return;
         }
 
-        if (res.missing.length){
-          els.hint.textContent = `Не найдены колонки: ${res.missing.join(', ')}. Я всё равно попробую агрегировать по ID кампании.`;
+        if (!res.hasCampaignId){
+          els.hint.textContent = 'В файле групп не найден столбец "ID кампании". Я сгруппирую данные по группам (fallback-режим). Если нужен режим кампаний — выгрузите отчёт, где есть "ID кампании".';
+        } else if (res.missing.length){
+          els.hint.textContent = `Не найдены колонки: ${res.missing.join(', ')}. Я всё равно попробую посчитать максимум возможного по найденным названиям.`;
         } else {
           els.hint.textContent = '';
         }
