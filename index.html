@@ -116,10 +116,12 @@
             <div style="min-width:260px;flex:1">
               <label>1) Отчёт по группам (.xlsx)</label>
               <input id="fileGroups" type="file" accept=".xlsx,.xls" />
+              <div style="margin-top:8px"><button id="btnClearGroups" type="button" class="btn secondary mini">Убрать файл</button></div>
             </div>
             <div style="min-width:260px;flex:1">
               <label>2) Отчёт по кампаниям (.xlsx)</label>
               <input id="fileCampaigns" type="file" accept=".xlsx,.xls" />
+              <div style="margin-top:8px"><button id="btnClearCampaigns" type="button" class="btn secondary mini">Убрать файл</button></div>
             </div>
           </div>
           <div class="row">
@@ -163,7 +165,7 @@
         <div class="row" style="justify-content:space-between">
           <div>
             <div style="font-weight:700">Кампании / группы и комментарии</div>
-            <div class="small">Можно исключать кампании целиком или отдельные группы внутри кампании.</div>
+            <div class="small">Можно исключать кампании целиком. Чтобы начать заново — очистите загруженные файлы.</div>
           </div>
           <div class="row">
             <span class="pill">Статус кампании: <span class="ok">active</span> если есть активные группы, иначе <span class="bad">blocked</span></span>
@@ -199,6 +201,8 @@
     const els = {
       fileGroups: document.getElementById('fileGroups'),
       fileCampaigns: document.getElementById('fileCampaigns'),
+      btnClearGroups: document.getElementById('btnClearGroups'),
+      btnClearCampaigns: document.getElementById('btnClearCampaigns'),
       statusPill: document.getElementById('statusPill'),
       dotGroups: document.getElementById('dotGroups'),
       dotCampaigns: document.getElementById('dotCampaigns'),
@@ -223,7 +227,6 @@
     const campaignComments = new Map();          // id -> comment
     const campaignIncluded = new Map();          // id -> boolean include (campaign)
     const deletedCampaigns = new Set();          // ids hidden from UI
-    const groupIncluded = new Map();             // groupId -> boolean include (within campaign)
 
     let totalsIncluded = true;                   // include totals block
     let totalComment = '';
@@ -353,10 +356,7 @@
 
         if (!cid) continue;
 
-        // group-level include
         const gKey = gid ? String(gid) : `${cid}::${gname || 'group'}`;
-        const gInc = groupIncluded.get(gKey) !== false;
-        if (!gInc) continue;
 
         const st = String(getVal(r, KEY_STATUS) ?? '').trim();
         const spend = asNumber(getVal(r, KEY_SPEND));
@@ -432,13 +432,16 @@
       }
     }
 
+    
     function buildMessage(){
       const title = (els.title.value || '').trim();
       const totalsLabel = (els.totalLabel.value || '').trim();
       let out = '';
-      if (title) out += `✅ ${title}\\n\\n`;
+      if (title) out += `✅ ${title}
 
-      // Totals over ALL included groups/campaigns (respects deletions/exclusions at UI level)
+`;
+
+      // Totals over ALL included campaigns
       let sumSpend = 0, sumImp = 0, sumListen = 0, sumAdds = 0;
       for (const c of campaignsAgg){
         const includeCampaign = campaignIncluded.get(c.id) !== false;
@@ -462,37 +465,60 @@
         const listen = asInt(c.listen);
         const adds = asInt(c.adds);
 
-        out += `➡ ${name}\\n\\n`;
-        out += `Потрачено: ${fmtMoney(spend)} ₽\\n`;
-        out += `Показы: ${fmtInt(imp)}\\n`;
-        out += `Начали прослушивание: ${fmtInt(listen)}\\n`;
-        out += `Добавлено: ${fmtInt(adds)}\\n`;
+        out += `➡ ${name}
+
+`;
+        out += `Потрачено: ${fmtMoney(spend)} ₽
+`;
+        out += `Показы: ${fmtInt(imp)}
+`;
+        out += `Начали прослушивание: ${fmtInt(listen)}
+`;
+        out += `Добавлено: ${fmtInt(adds)}
+`;
 
         const cpa = (adds > 0) ? (spend / adds) : 0;
-        out += `Ср. стоимость добавления: ${adds>0 ? (fmtMoney(cpa) + ' ₽') : '—'}\\n\\n`;
+        out += `Ср. стоимость добавления: ${adds>0 ? (fmtMoney(cpa) + ' ₽') : '—'}
 
-        out += `Статус: ${statusText(c.statusRaw)}\\n`;
-        out += `Комментарий: ${comment}\\n\\n`;
+`;
+
+        out += `Статус: ${statusText(c.statusRaw)}
+`;
+        out += `Комментарий: ${comment}
+
+`;
       }
 
       if (totalsLabel && totalsIncluded){
         const totalCpa = (sumAdds > 0) ? (sumSpend / sumAdds) : 0;
-        out += `➡ ${totalsLabel}\\n\\n`;
-        out += `Потрачено: ${fmtMoney(sumSpend)} ₽\\n`;
-        out += `Показы: ${fmtInt(sumImp)}\\n`;
-        out += `Начали прослушивание: ${fmtInt(sumListen)}\\n`;
-        out += `Добавлено: ${fmtInt(sumAdds)}\\n`;
-        out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}\\n\\n`;
+        out += `➡ ${totalsLabel}
+
+`;
+        out += `Потрачено: ${fmtMoney(sumSpend)} ₽
+`;
+        out += `Показы: ${fmtInt(sumImp)}
+`;
+        out += `Начали прослушивание: ${fmtInt(sumListen)}
+`;
+        out += `Добавлено: ${fmtInt(sumAdds)}
+`;
+        out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}
+
+`;
 
         const totalStatus = (els.totalStatus?.value || '').trim();
-        out += `Статус: ${totalStatus}\\nКомментарий: ${totalComment}\\n`;
+        out += `Статус: ${totalStatus}
+Комментарий: ${totalComment}
+`;
       }
 
-      els.output.value = out.trim() + '\\n';
+      els.output.value = (out.trim() ? (out.trim() + '
+') : '');
       els.btnCopy.disabled = !els.output.value.trim();
     }
 
     function renderTable(){
+
       if (!campaignsAgg.length){
         els.tableWrap.innerHTML = 'Сначала загрузите отчёт по группам.';
         return;
@@ -549,50 +575,13 @@
           </td>
           <td class="actionsCell">
             <div class="row" style="gap:8px;flex-wrap:nowrap">
-              <button class="btn secondary mini" data-toggle="${escapeHtmlAttr(c.id)}">Группы</button>
               <button class="btn danger mini" data-delc="${escapeHtmlAttr(c.id)}">Удалить</button>
             </div>
           </td>
         </tr>`;
 
         // details row
-        html += `<tr class="detailsRow" data-details="${escapeHtmlAttr(c.id)}" style="display:none">
-          <td colspan="5">
-            <div class="small">Группы внутри кампании (можно исключить конкретную группу):</div>
-            <table class="innerTable">
-              <thead>
-                <tr>
-                  <th style="width:44px;text-align:center">✓</th>
-                  <th>Группа</th>
-                  <th style="width:160px">Статус</th>
-                  <th style="width:220px">Метрики</th>
-                  <th style="width:110px">Действие</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${c.groups.map(g => {
-                  const gInc = groupIncluded.get(String(g.gid)) !== false;
-                  const gTitle = (g.name || '').trim() ? escapeHtml(g.name) : '<span class="mutedLine">(без названия)</span>';
-                  const gIdText = g.gidRaw ? `ID: <span class="mono">${escapeHtml(String(g.gidRaw))}</span>` : `Key: <span class="mono">${escapeHtml(String(g.gid))}</span>`;
-                  const metrics = `Показы: ${fmtInt(g.imp)} · Добавлено: ${fmtInt(g.adds)} · Потрачено: ${fmtMoney(g.spend)} ₽`;
-                  return `<tr>
-                    <td style="text-align:center">
-                      <input type="checkbox" data-ginclude="${escapeHtmlAttr(g.gid)}" ${gInc ? 'checked' : ''} title="Включать группу">
-                    </td>
-                    <td>
-                      <div>${gTitle}</div>
-                      <div class="small">${gIdText}</div>
-                    </td>
-                    <td>
-                      <span class="nowrap">${escapeHtml(statusText(g.status))}</span>
-                      <div class="small mono">${escapeHtml(String(g.status||''))}</div>
-                    </td>
-                    <td class="small">${escapeHtml(metrics)}</td>
-                    <td>
-                      <button class="btn danger mini" data-delg="${escapeHtmlAttr(g.gid)}">Удалить</button>
-                    </td>
-                  </tr>`;
-                }).join('')}
+                        }).join('')}
               </tbody>
             </table>
           </td>
@@ -652,17 +641,6 @@
           buildMessage();
         });
       });
-
-      // toggle details
-      els.tableWrap.querySelectorAll('button[data-toggle]').forEach(btn => {
-        btn.addEventListener('click', (e)=>{
-          const id = e.target.getAttribute('data-toggle');
-          const row = els.tableWrap.querySelector(`tr[data-details="${CSS.escape(id)}"]`);
-          if (!row) return;
-          row.style.display = (row.style.display === 'none' || !row.style.display) ? '' : 'none';
-        });
-      });
-
       // delete campaign (hide)
       els.tableWrap.querySelectorAll('button[data-delc]').forEach(btn => {
         btn.addEventListener('click', (e)=>{
@@ -674,158 +652,6 @@
           buildMessage();
         });
       });
-
-      // group include
-      els.tableWrap.querySelectorAll('input[data-ginclude]').forEach(inp => {
-        inp.addEventListener('change', (e)=>{
-          const gid = e.target.getAttribute('data-ginclude');
-          groupIncluded.set(gid, !!e.target.checked);
-          aggregateToCampaigns();
-          renderTable();
-          buildMessage();
-        });
-      });
-
-      // delete group (exclude)
-      els.tableWrap.querySelectorAll('button[data-delg]').forEach(btn => {
-        btn.addEventListener('click', (e)=>{
-          const gid = e.target.getAttribute('data-delg');
-          groupIncluded.set(gid, false);
-          aggregateToCampaigns();
-          renderTable();
-          buildMessage();
-        });
-      });
-    }
-
-    async function parseXlsx(file){
-      const buf = await file.arrayBuffer();
-      return XLSX.read(buf, { type:'array' });
-    }
-
-    function sheetToRowsNormalized(wb, preferredSheetName){
-      const sheetName = (preferredSheetName && wb.SheetNames.includes(preferredSheetName))
-        ? preferredSheetName
-        : wb.SheetNames[0];
-      const ws = wb.Sheets[sheetName];
-      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      return raw.map(obj => {
-        const out = {};
-        for (const [k,v] of Object.entries(obj)){
-          out[normKey(k)] = v;
-        }
-        return out;
-      });
-    }
-
-    async function handleGroupsFile(file){
-      const wb = await parseXlsx(file);
-
-      // Prefer "Группы", but tolerate a file where sheet name differs.
-      groupRows = sheetToRowsNormalized(wb, 'Группы');
-      groupsLoaded = groupRows.length > 0;
-
-      if (!groupsLoaded){
-        campaignsAgg = [];
-        return { missing: ['(пустой файл)'] };
-      }
-
-      // required for normal mode (campaign aggregation). If there is no ID кампании, we still continue in fallback mode.
-      const mustSoft = ['Статус','Потрачено всего, ₽','Показы','Начали прослушивание','Добавили аудио'];
-      const cols = new Set(Object.keys(groupRows[0] || {}));
-      const missing = mustSoft.filter(m => !cols.has(normKey(m)));
-
-      aggregateToCampaigns();
-      guessTitleAndTotalsLabel();
-      return { missing, hasCampaignId: cols.has('ID кампании') };
-    }
-
-    async function handleCampaignsFile(file){
-      const wb = await parseXlsx(file);
-      const rows = sheetToRowsNormalized(wb, 'Кампании');
-
-      campaignNamesFromReport.clear();
-
-      const KEY_ID = ['ID кампании','Campaign ID','campaign_id','CampaignId'];
-      const KEY_NAME = ['Название кампании','Campaign name','campaign_name','Name'];
-
-      for (const r of rows){
-        const id = String(getVal(r, KEY_ID) ?? '').trim();
-        const name = String(getVal(r, KEY_NAME) ?? '').trim();
-        if (id && name) campaignNamesFromReport.set(id, name);
-      }
-
-      campaignsReportLoaded = campaignNamesFromReport.size > 0;
-
-      if (groupsLoaded){
-        aggregateToCampaigns();
-        guessTitleAndTotalsLabel();
-        renderTable();
-        buildMessage();
-      }
-
-      return { count: campaignNamesFromReport.size };
-    }
-
-    function resetForNewGroups(){
-      campaignsAgg = [];
-      groupRows = [];
-      campaignComments.clear();
-      campaignAutoOverrides.clear();
-      campaignIncluded.clear();
-      deletedCampaigns.clear();
-      groupIncluded.clear();
-      totalsIncluded = true;
-      totalComment = '';
-      if (els.totalStatus) els.totalStatus.value = '';
-      els.output.value = '';
-      els.btnGenerate.disabled = true;
-      els.btnCopy.disabled = true;
-      els.hint.textContent = '';
-      els.copyHint.textContent = '';
-    }
-
-    els.fileGroups.addEventListener('change', async (e)=>{
-      const f = e.target.files?.[0];
-      resetForNewGroups();
-
-      if (!f){
-        groupsLoaded = false;
-        setPill();
-        renderTable();
-        return;
-      }
-
-      try{
-        const res = await handleGroupsFile(f);
-        setPill();
-
-        if (!groupsLoaded){
-          els.hint.textContent = 'Файл групп пустой или не распознан.';
-          renderTable();
-          return;
-        }
-
-        if (!res.hasCampaignId){
-          els.hint.textContent = 'В файле групп не найден столбец "ID кампании". Я сгруппирую данные по группам (fallback-режим). Если нужен режим кампаний — выгрузите отчёт, где есть "ID кампании".';
-        } else if (res.missing.length){
-          els.hint.textContent = `Не найдены колонки: ${res.missing.join(', ')}. Я всё равно попробую посчитать максимум возможного по найденным названиям.`;
-        } else {
-          els.hint.textContent = '';
-        }
-
-        renderTable();
-        els.btnGenerate.disabled = false;
-
-      }catch(err){
-        console.error(err);
-        groupsLoaded = false;
-        setPill();
-        els.hint.textContent = String(err?.message || err);
-        renderTable();
-      }
-    });
-
     els.fileCampaigns.addEventListener('change', async (e)=>{
       const f = e.target.files?.[0];
       if (!f){
@@ -877,6 +703,30 @@
     els.title.addEventListener('input', ()=>{ if (groupsLoaded) buildMessage(); });
     els.totalLabel.addEventListener('input', ()=>{ if (groupsLoaded) buildMessage(); });
     els.totalStatus.addEventListener('change', ()=>{ if (groupsLoaded) buildMessage(); });
+
+
+    // --- Clear buttons (remove loaded files) ---
+    els.btnClearGroups.addEventListener('click', ()=>{
+      els.fileGroups.value = '';
+      resetForNewGroups();
+      groupsLoaded = false;
+      setPill();
+      renderTable();
+    });
+
+    els.btnClearCampaigns.addEventListener('click', ()=>{
+      els.fileCampaigns.value = '';
+      campaignNamesFromReport.clear();
+      campaignsReportLoaded = false;
+      setPill();
+      if (groupsLoaded){
+        aggregateToCampaigns();
+        renderTable();
+        buildMessage();
+      } else {
+        renderTable();
+      }
+    });
 
     setPill();
   </script>
