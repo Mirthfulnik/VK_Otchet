@@ -352,6 +352,7 @@
       const KEY_IMP         = ['Показы','Impressions'];
       const KEY_LISTEN      = ['Начали прослушивание','Started listening','Listen starts'];
       const KEY_ADDS        = ['Добавили аудио','Added audio','Adds'];
+      const KEY_PRICE_ADD   = ['Цена за добавление аудио, ₽','Цена за добавление аудио','Price per add'];
 
       const map = new Map();
       for (const r of groupRows){
@@ -378,8 +379,10 @@
         const listen = asInt(getVal(r, KEY_LISTEN));
         const adds = asInt(getVal(r, KEY_ADDS));
 
+        const priceAdd = asNumber(getVal(r, KEY_PRICE_ADD));
+
         if (!map.has(cid)){
-          map.set(cid, { id: cid, statuses: [], spend: 0, imp: 0, listen: 0, adds: 0, groupsCount: 0 });
+          map.set(cid, { id: cid, statuses: [], spend: 0, imp: 0, listen: 0, adds: 0, groupsCount: 0, minPriceAdd: Infinity });
         }
         const a = map.get(cid);
         a.statuses.push(st);
@@ -388,6 +391,7 @@
         a.listen += listen;
         a.adds += adds;
         a.groupsCount += 1;
+        if (priceAdd > 0) a.minPriceAdd = Math.min(a.minPriceAdd, priceAdd);
       }
 
       const list = [];
@@ -400,6 +404,7 @@
           listen: a.listen,
           adds: a.adds,
           groupsCount: a.groupsCount,
+          minPriceAdd: isFinite(a.minPriceAdd) ? a.minPriceAdd : 0,
         });
       }
 
@@ -470,10 +475,15 @@
         out += `Потрачено: ${fmtMoney(spend)} ₽\n`;
         out += `Показы: ${fmtInt(imp)}\n`;
         out += `Начали прослушивание: ${fmtInt(listen)}\n`;
+
+        const cpl = (listen > 0) ? (spend / listen) : 0;
+        out += `Ср. стоимость прослушивания: ${listen > 0 ? (fmtMoney(cpl) + ' ₽') : '—'}\n`;
+
         out += `Добавлено: ${fmtInt(adds)}\n`;
 
         const cpa = (adds > 0) ? (spend / adds) : 0;
-        out += `Ср. стоимость добавления: ${adds>0 ? (fmtMoney(cpa) + ' ₽') : '—'}\n\n`;
+        out += `Ср. стоимость добавления: ${adds > 0 ? (fmtMoney(cpa) + ' ₽') : '—'}\n`;
+        out += `Лучшая цена добавления: ${c.minPriceAdd > 0 ? (fmtMoney(c.minPriceAdd) + ' ₽') : '—'}\n\n`;
 
         out += `Статус: ${statusText(c.statusRaw)}\n`;
         out += `Комментарий: ${comment}\n\n`;
@@ -481,12 +491,17 @@
 
       if (totalsLabel && totalsIncluded){
         const totalCpa = (sumAdds > 0) ? (sumSpend / sumAdds) : 0;
+        const totalCpl = (sumListen > 0) ? (sumSpend / sumListen) : 0;
+        const allPrices = campaignsAgg.map(c => c.minPriceAdd).filter(p => p > 0);
+        const bestPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
         out += `➡ ${totalsLabel}\n\n`;
         out += `Потрачено: ${fmtMoney(sumSpend)} ₽\n`;
         out += `Показы: ${fmtInt(sumImp)}\n`;
         out += `Начали прослушивание: ${fmtInt(sumListen)}\n`;
+        out += `Ср. стоимость прослушивания: ${sumListen > 0 ? (fmtMoney(totalCpl) + ' ₽') : '—'}\n`;
         out += `Добавлено: ${fmtInt(sumAdds)}\n`;
-        out += `Ср. стоимость добавления: ${sumAdds>0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}\n\n`;
+        out += `Ср. стоимость добавления: ${sumAdds > 0 ? (fmtMoney(totalCpa) + ' ₽') : '—'}\n`;
+        out += `Лучшая цена добавления: ${bestPrice > 0 ? (fmtMoney(bestPrice) + ' ₽') : '—'}\n\n`;
 
         const totalStatus = (els.totalStatus?.value || '').trim();
         out += `Статус: ${totalStatus}\nКомментарий: ${totalComment}\n`;
