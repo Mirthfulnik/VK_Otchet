@@ -111,6 +111,13 @@
               <div class="small" style="margin-top:6px">
               </div>
             </div>
+            <div style="min-width:260px;flex:1">
+              <label>3) Отчёт с софт-добавлениями (.xlsx)</label>
+              <input id="fileSoft" type="file" accept=".xlsx,.xls" />
+              <div class="small" style="margin-top:6px">
+                Колонка «Добавили аудио (софт)». Джойн по ID группы, иначе по ID кампании.
+              </div>
+            </div>
           </div>
           <div class="row">
             <span id="statusPill" class="pill">Файлы не загружены</span>
@@ -191,6 +198,7 @@
     const els = {
       fileGroups: document.getElementById('fileGroups'),
       fileCampaigns: document.getElementById('fileCampaigns'),
+      fileSoft: document.getElementById('fileSoft'),
       statusPill: document.getElementById('statusPill'),
       btnGenerate: document.getElementById('btnGenerate'),
       btnCopy: document.getElementById('btnCopy'),
@@ -217,12 +225,19 @@
     let groupsLoaded = false;
     let campaignsReportLoaded = false;
 
+    // --- Soft adds report (file #3) ---
+    const softByGroupId = new Map();     // ID группы -> { adds, price }
+    const softByCampaignId = new Map();  // ID кампании -> { adds, minPrice }
+    let softLoaded = false;
+    let softJoinInfo = { matched: 0, missed: 0, mode: '' };
+
     const nfInt = new Intl.NumberFormat('ru-RU');
     const nfMoney = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     function normKey(k){
       return String(k ?? '')
         .replace(/\u00A0/g,' ')      // NBSP -> space
+        .replace(/[\u2191\u2193]/g,'') // remove sort arrows ↑ ↓ from VK headers
         .replace(/\s+/g,' ')
         .trim();
     }
@@ -337,10 +352,14 @@
 
       // Keep pill container neutral; color each segment separately.
       els.statusPill.classList.remove('ok','bad');
+      const sText = softLoaded ? 'Софт: загружено' : 'Софт: нет';
+
       els.statusPill.innerHTML =
         `<span class="${groupsLoaded ? 'ok' : 'bad'}">${gText}</span>` +
         ` <span class="small" style="opacity:.6">·</span> ` +
-        `<span class="${campaignsReportLoaded ? 'ok' : 'bad'}">${cText}</span>`;
+        `<span class="${campaignsReportLoaded ? 'ok' : 'bad'}">${cText}</span>` +
+        ` <span class="small" style="opacity:.6">·</span> ` +
+        `<span class="${softLoaded ? 'ok' : 'bad'}">${sText}</span>`;
     }
 
     function aggregateToCampaigns(){
@@ -353,7 +372,9 @@
       const KEY_LISTEN      = ['Начали прослушивание','Started listening','Listen starts'];
       const KEY_ADDS        = ['Добавили аудио','Added audio','Adds'];
       const KEY_PRICE_ADD   = ['Цена за добавление аудио, ₽','Цена за добавление аудио','Price per add'];
+      const KEY_GROUP_ID    = ['ID группы','ID Группы','Group ID','group_id','ID group'];
 
+      let softMatched = 0, softMissed = 0;
       const map = new Map();
       for (const r of groupRows){
         const cidRaw = getVal(r, KEY_CAMPAIGN_ID);
@@ -377,9 +398,24 @@
         const spend = asNumber(getVal(r, KEY_SPEND));
         const imp = asInt(getVal(r, KEY_IMP));
         const listen = asInt(getVal(r, KEY_LISTEN));
-        const adds = asInt(getVal(r, KEY_ADDS));
 
-        const priceAdd = asNumber(getVal(r, KEY_PRICE_ADD));
+        // Adds: from soft report (file #3) if loaded, otherwise from groups report.
+        let adds = asInt(getVal(r, KEY_ADDS));
+        let priceAdd = asNumber(getVal(r, KEY_PRICE_ADD));
+
+        if (softLoaded && softByGroupId.size){
+          const gid = String(getVal(r, KEY_GROUP_ID) ?? '').trim();
+          const s = gid ? softByGroupId.get(gid) : undefined;
+          if (s){
+            adds = asInt(s.adds);
+            priceAdd = asNumber(s.price);
+            softMatched++;
+          } else {
+            adds = 0;
+            priceAdd = 0;
+            softMissed++;
+          }
+        }
 
         if (!map.has(cid)){
           map.set(cid, { id: cid, statuses: [], spend: 0, imp: 0, listen: 0, adds: 0, groupsCount: 0, minPriceAdd: Infinity });
@@ -392,6 +428,27 @@
         a.adds += adds;
         a.groupsCount += 1;
         if (priceAdd > 0) a.minPriceAdd = Math.min(a.minPriceAdd, priceAdd);
+      }
+
+      // Fallback: no group-ID overlap between reports -> join soft adds by campaign ID.
+      if (softLoaded && softMatched === 0 && softByCampaignId.size){
+        let cMatched = 0;
+        for (const a of map.values()){
+          const s = softByCampaignId.get(String(a.id).trim());
+          if (s){
+            a.adds = asInt(s.adds);
+            a.minPriceAdd = s.minPrice > 0 ? s.minPrice : Infinity;
+            cMatched++;
+          } else {
+            a.adds = 0;
+            a.minPriceAdd = Infinity;
+          }
+        }
+        softJoinInfo = { matched: cMatched, missed: map.size - cMatched, mode: 'по ID кампании' };
+      } else if (softLoaded){
+        softJoinInfo = { matched: softMatched, missed: softMissed, mode: 'по ID группы' };
+      } else {
+        softJoinInfo = { matched: 0, missed: 0, mode: '' };
       }
 
       const list = [];
@@ -704,6 +761,56 @@
       return { count: campaignNamesFromReport.size };
     }
 
+    async function handleSoftFile(file){
+      const wb = await parseXlsx(file);
+      const rows = sheetToRowsNormalized(wb, 'Группы');
+
+      softByGroupId.clear();
+      softByCampaignId.clear();
+
+      const KEY_GROUP_ID   = ['ID группы','ID Группы','Group ID','group_id','ID group'];
+      const KEY_CAMP_ID    = ['ID кампании','ID Кампании','Campaign ID','campaign_id','ID campaign'];
+      const KEY_SOFT_ADDS  = ['Добавили аудио (софт)','Добавили аудио(софт)','Soft adds','Добавления (софт)'];
+      const KEY_SOFT_PRICE = ['Цена за добавление (софт)','Цена за добавление(софт)','Soft price per add'];
+
+      // Column check (name-based, order-independent)
+      const cols = new Set(Object.keys(rows[0] || {}).map(normKey));
+      const hasSoftCol = KEY_SOFT_ADDS.some(c => cols.has(normKey(c)));
+
+      let count = 0;
+      for (const r of rows){
+        const gid  = String(getVal(r, KEY_GROUP_ID) ?? '').trim();
+        const cid  = String(getVal(r, KEY_CAMP_ID) ?? '').trim();
+        if (!gid && !cid) continue;                  // skips the "Итого" row
+        const adds  = asInt(getVal(r, KEY_SOFT_ADDS));
+        const price = asNumber(getVal(r, KEY_SOFT_PRICE));
+
+        if (gid){
+          softByGroupId.set(gid, { adds, price });
+          count++;
+        }
+        if (cid){
+          if (!softByCampaignId.has(cid)) softByCampaignId.set(cid, { adds: 0, minPrice: Infinity });
+          const agg = softByCampaignId.get(cid);
+          agg.adds += adds;
+          if (price > 0) agg.minPrice = Math.min(agg.minPrice, price);
+        }
+      }
+      for (const agg of softByCampaignId.values()){
+        if (!isFinite(agg.minPrice)) agg.minPrice = 0;
+      }
+
+      softLoaded = softByGroupId.size > 0 || softByCampaignId.size > 0;
+
+      if (groupsLoaded){
+        aggregateToCampaigns();
+        renderTable();
+        buildMessage();
+      }
+
+      return { count, hasSoftCol };
+    }
+
     function resetForNewGroups(){
       campaignsAgg = [];
       groupRows = [];
@@ -783,6 +890,47 @@
       }catch(err){
         console.error(err);
         campaignsReportLoaded = false;
+        setPill();
+        els.hint.textContent = String(err?.message || err);
+      }
+    });
+
+    els.fileSoft.addEventListener('change', async (e)=>{
+      const f = e.target.files?.[0];
+      if (!f){
+        softByGroupId.clear();
+        softByCampaignId.clear();
+        softLoaded = false;
+        setPill();
+        if (groupsLoaded){
+          aggregateToCampaigns();
+          renderTable();
+          buildMessage();
+        }
+        return;
+      }
+
+      try{
+        const res = await handleSoftFile(f);
+        setPill();
+
+        if (!res.hasSoftCol){
+          els.hint.textContent = 'В третьем файле не найдена колонка «Добавили аудио (софт)». Добавления будут нулевыми.';
+          return;
+        }
+
+        let msg = `Софт-добавления загружены: строк ${res.count}.`;
+        if (groupsLoaded && softJoinInfo.mode){
+          msg += ` Сопоставлено ${softJoinInfo.mode}: ${softJoinInfo.matched}`;
+          if (softJoinInfo.missed) msg += `, без совпадения: ${softJoinInfo.missed} (у них добавления = 0)`;
+          msg += '.';
+        } else if (!groupsLoaded){
+          msg += ' Теперь загрузите отчёт по группам.';
+        }
+        els.hint.textContent = msg;
+      }catch(err){
+        console.error(err);
+        softLoaded = false;
         setPill();
         els.hint.textContent = String(err?.message || err);
       }
