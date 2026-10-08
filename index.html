@@ -401,18 +401,15 @@
 
         // Adds: from soft report (file #3) if loaded, otherwise from groups report.
         let adds = asInt(getVal(r, KEY_ADDS));
-        let priceAdd = asNumber(getVal(r, KEY_PRICE_ADD));
 
         if (softLoaded && softByGroupId.size){
           const gid = String(getVal(r, KEY_GROUP_ID) ?? '').trim();
           const s = gid ? softByGroupId.get(gid) : undefined;
           if (s){
             adds = asInt(s.adds);
-            priceAdd = asNumber(s.price);
             softMatched++;
           } else {
             adds = 0;
-            priceAdd = 0;
             softMissed++;
           }
         }
@@ -427,7 +424,11 @@
         a.listen += listen;
         a.adds += adds;
         a.groupsCount += 1;
-        if (priceAdd > 0) a.minPriceAdd = Math.min(a.minPriceAdd, priceAdd);
+        // Цена добавления группы = расходы из ОСНОВНОЙ выгрузки / добавления (софт, если загружен).
+        // Готовые колонки цены не используем: в софт-файле она считается от суммы с НДС.
+        if (spend > 0 && adds > 0){
+          a.minPriceAdd = Math.min(a.minPriceAdd, spend / adds);
+        }
       }
 
       // Fallback: no group-ID overlap between reports -> join soft adds by campaign ID.
@@ -437,7 +438,7 @@
           const s = softByCampaignId.get(String(a.id).trim());
           if (s){
             a.adds = asInt(s.adds);
-            a.minPriceAdd = s.minPrice > 0 ? s.minPrice : Infinity;
+            a.minPriceAdd = (a.spend > 0 && a.adds > 0) ? a.spend / a.adds : Infinity;
             cMatched++;
           } else {
             a.adds = 0;
